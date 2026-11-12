@@ -1,6 +1,6 @@
 # 🗂️ My Dashboard
 
-GitHub Pages에 올리는 개인 대시보드. 홈(앱 서랍)은 누구나 볼 수 있고, Todo·운동·식단·소식은 로그인한 본인만 볼 수 있습니다.
+GitHub Pages에 올리는 개인 대시보드. 홈(앱 서랍)은 누구나 볼 수 있고, Todo·운동·식단·소식·경제 동향은 로그인한 본인만 볼 수 있습니다.
 
 - **스택**: Vite + React + TypeScript, HashRouter, Supabase(Auth + Postgres + RLS)
 - **배포**: `main`에 push → GitHub Actions → GitHub Pages
@@ -19,6 +19,7 @@ GitHub Pages에 올리는 개인 대시보드. 홈(앱 서랍)은 누구나 볼 
    - 테이블 4개(dash_todos, dash_workout_items, dash_workout_logs, dash_meals) + RLS 정책이 만들어집니다.
    - *Table Editor*에서 각 테이블에 🔒 `RLS enabled`가 표시되는지 확인하세요.
    - 이전 버전 스키마를 이미 실행했다면 `supabase/002_update.sql`만 추가로 실행합니다 (운동 시간대·장소·메모, 식단 영양 분석, 인사이트, 소식 테이블). 여러 번 실행해도 안전합니다.
+   - 경제 동향 탭: `supabase/003_market.sql` 실행 (관심 종목·시세 테이블 + 기본 9종목).
    - (선택) 운동 루틴 초기값: `supabase/seed_routine.local.sql`의 이메일을 바꿔 실행. 건강 정보가 들어 있어 git에서 제외된 파일입니다.
 3. **내 계정 만들기** — *Authentication → Users → Add user → Create new user*
    - 이메일 + 비밀번호 입력, **Auto Confirm User** 체크
@@ -76,12 +77,13 @@ npm run build
    - anon 키는 브라우저에 노출되는 공개 키라 Variables여도 괜찮지만, 신경 쓰이면 Secrets에 넣으세요.
 4. `main`에 push하면 *Actions* 탭에서 배포가 진행되고, 끝나면 `https://<아이디>.github.io/<저장소이름>/`에서 열립니다.
 
-## 4. 맥미니 정기 작업 (식단 분석 · 주간 소식)
+## 4. 맥미니 정기 작업 (식단 분석 · 주간 소식 · 경제 동향)
 
 웹은 기록만 하고, 분석·수집은 맥미니의 `scripts/daily.mjs`가 맡습니다.
 
 - **매일 06:30 뉴스 제목 모으기**(`collect`): `scripts/news-feeds.json`의 분야별 RSS에서 제목만 받아 로컬 `scripts/news-cache.json`(git 제외)에 쌓습니다. 화면에는 아무것도 표시되지 않습니다. RSS는 반나절~이틀치만 담고 있어서 매일 모아야 한 주를 덮을 수 있습니다.
 - **매주 월요일 07:00 주간 소식**(`news`): 지난주 월~일 기사를 경제·문화·세계·과학·의학·IT·생활 분야별로 Gemini가 주요 뉴스 5~10개(한 줄 설명 포함)와 분야별 한 줄 요약으로 정리해 `dash_news_digests`에 저장. 소식 탭은 일주일에 한 번, 월요일에만 바뀝니다.
+- **경제 동향**(`market`): Yahoo Finance 차트 데이터(키 불필요)로 관심 종목의 직전 거래일 시세와 기간별(일·주·월·연·5년·최대) 차트를 `dash_market_quotes`에 저장. 매일 07:30(미국 장 마감 후)·16:30(국내 장 마감 후) 전체 갱신, 10분마다 새로 추가한 종목만 채움(`market --missing`). 종목은 화면의 **편집**에서 Yahoo 티커로 추가·삭제합니다 (예: `AAPL`, `000660.KS`, `GC=F`, `BTC-KRW`).
 - **매일 23:00 식단**(`meals`): 아직 분석 안 된 식단(`analyzed_at` 비어 있음, 최대 14일치)을 Gemini로 보내 음식 이름·kcal·탄단지를 채우고 하루 인사이트를 `dash_meal_insights`에 저장. 식단 내용을 고치면 다시 분석됩니다. 직접 입력한 kcal이 AI 추정치보다 우선합니다.
 
 설정:
@@ -113,7 +115,7 @@ node scripts/daily.mjs collect --dry-run
 ```
 
 - 시간은 `install-launchd.sh` 안의 숫자를 고친 뒤 다시 실행하면 바뀝니다.
-- 로그: `~/Library/Logs/dashboard/collect.log`, `news.log`, `meals.log`
+- 로그: `~/Library/Logs/dashboard/collect.log`, `news.log`, `meals.log`, `market.log`
 - 맥미니가 잠자기 중이었다면 깨어날 때 놓친 작업이 한 번 실행됩니다. 전원이 꺼져 있었다면 건너뜁니다(식단은 다음 날 밀린 것까지 분석). 로그아웃 상태에서는 실행되지 않습니다.
 - 지금 바로 한 번 돌려 보기: `launchctl kickstart gui/$(id -u)/com.dashboard.weekly-news` (또는 `com.dashboard.daily-meals`)
 
@@ -128,11 +130,11 @@ src/
   lib/date.ts        Asia/Seoul 기준 날짜 유틸
   api/               데이터 접근 함수 (pages는 여기만 호출)
   components/        Layout(사이드바/탭바), 인증, 공통 UI
-  pages/             Home, Todo, Workout, Meals, News, Login
+  pages/             Home, Todo, Workout, Meals, News, Market, Login
   data/apps.json     앱 서랍 목록
 supabase/schema.sql  테이블 + RLS (002 포함 전체)
-supabase/002_update.sql  기존 프로젝트용 추가 변경
-scripts/daily.mjs    맥미니 정기 작업 (식단 분석·주간 소식)
+supabase/002_update.sql, 003_market.sql  기존 프로젝트용 추가 변경
+scripts/daily.mjs    맥미니 정기 작업 (식단 분석·주간 소식·경제 동향)
 ```
 
 ### 앱 서랍에 앱 추가
