@@ -56,8 +56,8 @@ export default function News() {
     <div>
       <PageHeader
         eyebrow={selected ? weekRange(selected) : 'Weekly'}
-        title="이번 주 소식"
-        subtitle="매일 보지 않아도 되게, 매주 월요일 아침 지난 1주일의 주요 뉴스를 분야별로 정리합니다"
+        title="지난주 소식"
+        subtitle="매일 보지 않아도 되게, 매주 월요일 아침 지난주(월~일) 주요 뉴스를 분야별로 정리합니다"
       />
       <ErrorBanner error={error} onClose={() => setError(null)} />
 

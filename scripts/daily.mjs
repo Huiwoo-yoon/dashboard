@@ -2,7 +2,7 @@
 // 맥미니에서 매일 실행하는 로컬 작업 (launchd가 호출)
 //   node scripts/daily.mjs meals   식단 AI 분석 (칼로리·탄단지·하루 인사이트)
 //   node scripts/daily.mjs collect 뉴스 제목만 로컬에 모아 두기 (매일, 화면 표시 없음)
-//   node scripts/daily.mjs news    지난 7일 주간 소식 정리 (매주 월요일)
+//   node scripts/daily.mjs news    지난주 월~일 주간 소식 정리 (매주 월요일)
 //   node scripts/daily.mjs all
 // 설정: scripts/.env.local (git에 올라가지 않음) — 아래 ENV 항목 참고
 
@@ -164,7 +164,7 @@ ${lines.join('\n')}`;
 
 // ---------- 주간 소식 ----------
 // RSS는 보통 반나절~이틀치만 담고 있어서, 매일 조용히 제목만 모아 두고(collect, 화면 표시 없음)
-// 매주 월요일에 지난 7일치를 분야별로 정리한다(news).
+// 매주 월요일에 지난주 월~일 기사를 분야별로 정리한다(news).
 const CATEGORIES = ['경제', '문화', '세계', '과학', '의학', 'IT', '생활'];
 const CACHE = join(here, 'news-cache.json'); // git 제외
 const DAY = 86400 * 1000;
@@ -218,18 +218,23 @@ async function runCollect() {
   log(`[collect] 새 기사 ${added}개, 보관 ${kept.length}개`);
 }
 
-/** 매주: 지난 7일치를 분야별 5~10개로 정리해 저장 */
+/** 매주: 지난주 월~일 기사를 분야별 5~10개로 정리해 저장 (digest_date = 지난주 월요일) */
 async function runNews(userId) {
   await runCollect();
   if (DRY) return;
-  const end = Date.now();
-  const start = end - 7 * DAY;
-  const weekStart = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(start));
+  // 가장 최근에 끝난 한 주: 지난주 월요일 00:00 ~ 이번 주 월요일 00:00 (서울 기준)
+  const today = todaySeoul();
+  const wd = new Date(`${today}T00:00:00Z`).getUTCDay(); // 0=일 … 6=토
+  const ymd = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const thisMonday = ymd(Date.parse(`${today}T00:00:00Z`) - ((wd + 6) % 7) * DAY);
+  const weekStart = ymd(Date.parse(`${thisMonday}T00:00:00Z`) - 7 * DAY);
+  const start = Date.parse(`${weekStart}T00:00:00+09:00`);
+  const end = Date.parse(`${thisMonday}T00:00:00+09:00`);
   const all = readCache().filter((i) => {
     const t = Date.parse(i.published_at ?? i.collected_at);
-    return t >= start && t <= end;
+    return t >= start && t < end;
   });
-  log(`[news] ${weekStart}부터 7일, 후보 ${all.length}개`);
+  log(`[news] ${weekStart}(월) ~ ${ymd(end - DAY)}(일), 후보 ${all.length}개`);
   if (all.length === 0) return;
 
   const schema = {
