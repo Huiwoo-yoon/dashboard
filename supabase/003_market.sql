@@ -57,6 +57,8 @@ cross join (values
   ('^KS11',     '코스피',        4),
   ('BTC-USD',   '비트코인',      5),
   ('005930.KS', '삼성전자',      6),
-  ('IONQ',      'IonQ',         7)
+  ('IONQ',      'IonQ',         7),
+  ('GOOGL',     '구글',          8),
+  ('BRK-B',     '버크셔 B',      9)
 ) as v(symbol, label, ord)
 on conflict (user_id, symbol) do nothing;
