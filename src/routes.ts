@@ -5,6 +5,7 @@ import Todo from './pages/Todo';
 import Workout from './pages/Workout';
 import Meals from './pages/Meals';
 import News from './pages/News';
+import Market from './pages/Market';
 
 export interface AppRoute {
   path: string;
@@ -24,5 +25,6 @@ export const routes: AppRoute[] = [
   { path: '/workout', label: '운동', icon: 'activity', component: Workout, requiresAuth: true },
   { path: '/meals', label: '식단', icon: 'meal', component: Meals, requiresAuth: true },
   { path: '/news', label: '소식', icon: 'news', component: News, requiresAuth: true },
+  { path: '/market', label: '경제 동향', icon: 'trend', component: Market, requiresAuth: true },
   { path: '/apps', label: '앱 서랍', icon: 'grid', component: Home, requiresAuth: false },
 ];

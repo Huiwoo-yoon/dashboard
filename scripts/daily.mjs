@@ -3,6 +3,7 @@
 //   node scripts/daily.mjs meals   식단 AI 분석 (칼로리·탄단지·하루 인사이트)
 //   node scripts/daily.mjs collect 뉴스 제목만 로컬에 모아 두기 (매일, 화면 표시 없음)
 //   node scripts/daily.mjs news    지난주 월~일 주간 소식 정리 (매주 월요일)
+//   node scripts/daily.mjs market  경제 동향: 관심 종목 시세·차트 갱신 (--missing: 새로 추가된 종목만)
 //   node scripts/daily.mjs all
 // 설정: scripts/.env.local (git에 올라가지 않음) — 아래 ENV 항목 참고
 
@@ -288,6 +289,75 @@ ${list}`;
   log(`[news] ${weekStart} 주간 소식 저장 (${items.length}개 기사)`);
 }
 
+// ---------- 경제 동향 ----------
+// Yahoo Finance 차트 API (키 불필요). 화면용 기간: 일·주·월·연·5년·최대
+const RANGES = [['1d', '5m'], ['5d', '30m'], ['1mo', '1d'], ['1y', '1d'], ['5y', '1wk'], ['max', '1mo']];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function yahooChart(symbol, range, interval) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`;
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) });
+  const json = await res.json().catch(() => null);
+  const result = json?.chart?.result?.[0];
+  if (!result) throw new Error(json?.chart?.error?.description || `HTTP ${res.status}`);
+  const ts = result.timestamp ?? [];
+  const close = result.indicators?.quote?.[0]?.close ?? [];
+  const points = [];
+  for (let i = 0; i < ts.length; i++) {
+    if (close[i] != null) points.push([ts[i], Number(close[i].toPrecision(7))]);
+  }
+  return { meta: result.meta, points };
+}
+
+async function runMarket(userId, onlyMissing) {
+  const { data: symbols, error } = await db.from('dash_market_symbols').select('symbol').eq('user_id', userId);
+  if (error) throw error;
+  let targets = symbols.map((s) => s.symbol);
+  if (onlyMissing) {
+    const { data: have, error: e2 } = await db.from('dash_market_quotes').select('symbol').eq('user_id', userId);
+    if (e2) throw e2;
+    const done = new Set(have.map((h) => h.symbol));
+    targets = targets.filter((s) => !done.has(s));
+    if (targets.length === 0) return; // 조용히 끝 (10분마다 도는 작업)
+  }
+  log(`[market] ${targets.length}개 종목 갱신`);
+  for (const symbol of targets) {
+    const row = { user_id: userId, symbol, updated_at: new Date().toISOString() };
+    try {
+      const history = {};
+      let meta = null;
+      for (const [range, interval] of RANGES) {
+        const r = await yahooChart(symbol, range, interval);
+        if (range === '1d') meta = r.meta;
+        history[range] = r.points;
+        await sleep(250);
+      }
+      Object.assign(row, {
+        name: meta.shortName || meta.longName || symbol,
+        currency: meta.currency ?? null,
+        price: meta.regularMarketPrice ?? null,
+        prev_close: meta.chartPreviousClose ?? meta.previousClose ?? null,
+        market_time: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : null,
+        history,
+        error: null,
+      });
+      log(`[market] ${symbol} ${row.price} (전일 ${row.prev_close})`);
+    } catch (e) {
+      row.error = `시세를 찾지 못했습니다: ${e.message}`.slice(0, 300);
+      log(`[market] ${symbol} 실패: ${e.message}`);
+    }
+    // 실패해도 행을 남겨 화면에 오류를 보여 준다 (이전 데이터가 있으면 error만 갱신)
+    const payload = row.error ? { user_id: userId, symbol, error: row.error, updated_at: row.updated_at } : row;
+    const { error: e3 } = await db.from('dash_market_quotes').upsert(payload, { onConflict: 'user_id,symbol' });
+    if (e3) throw e3;
+  }
+  // 목록에서 지운 종목의 시세 정리
+  const keep = new Set(symbols.map((s) => s.symbol));
+  const { data: rows } = await db.from('dash_market_quotes').select('symbol').eq('user_id', userId);
+  const stale = (rows ?? []).map((r) => r.symbol).filter((s) => !keep.has(s));
+  if (stale.length) await db.from('dash_market_quotes').delete().eq('user_id', userId).in('symbol', stale);
+}
+
 // ---------- 실행 ----------
 const cmd = process.argv[2] || 'all';
 try {
@@ -297,8 +367,9 @@ try {
     const userId = DRY ? null : await resolveUserId();
     if ((cmd === 'meals' || cmd === 'all') && !DRY) await runMeals(userId);
     if (cmd === 'news' || cmd === 'all') await runNews(userId);
+    if ((cmd === 'market' || cmd === 'all') && !DRY) await runMarket(userId, process.argv.includes('--missing'));
   }
-  log('[done]', cmd);
+  if (!(cmd === 'market' && process.argv.includes('--missing'))) log('[done]', cmd);
 } catch (e) {
   console.error(new Date().toISOString(), '[error]', e.message);
   process.exit(1);
