@@ -251,8 +251,8 @@ async function runNews(userId) {
         type: 'ARRAY',
         items: {
           type: 'OBJECT',
-          properties: { index: { type: 'INTEGER' }, title: { type: 'STRING' }, note: { type: 'STRING' } },
-          required: ['index', 'title', 'note'],
+          properties: { index: { type: 'INTEGER' }, original: { type: 'STRING' }, title: { type: 'STRING' }, note: { type: 'STRING' } },
+          required: ['index', 'original', 'title', 'note'],
         },
       },
     },
@@ -261,7 +261,8 @@ async function runNews(userId) {
 
   const items = [];
   const lines = [];
-  const RULES = `  - title: 한국어로 다듬은 제목 (영어 기사도 한국어로)
+  const RULES = `  - index: 목록의 번호, original: 그 번호 기사의 원래 제목을 목록에서 글자 그대로 복사
+  - title: 한국어로 다듬은 제목 (영어 기사도 한국어로)
   - note: 무슨 내용인지 한국어 한 문장 설명`;
   const PSY = '읽는 사람은 정신건강의학과 의사이고, 디지털 디톡스 중이라 일주일에 한 번만 본다. 임상에 의미 있는 연구 결과, 치료·약물·가이드라인, 정책·제도, 진료 환경 변화 위주로. 일반인 대상 가벼운 건강 팁·광고성·같은 사건 중복 기사는 제외.';
 
@@ -270,12 +271,27 @@ async function runNews(userId) {
     if (pool.length === 0) return null;
     const list = pool.map((i, n) => `${n}. [${i.source}] ${i.title}`).join('\n');
     const out = await gemini(`${task}\n\n${list}`, schema);
-    const picks = out.picks.filter((p) => pool[p.index]).slice(0, max);
-    for (const p of picks) {
-      const a = pool[p.index];
-      items.push({ title: String(p.title).slice(0, 200), url: a.url, source: a.source, published_at: a.published_at, topic: cat, note: String(p.note).slice(0, 300) });
+    // AI가 번호를 잘못 짚으면 제목과 링크가 어긋난다 → 원래 제목으로 다시 확인하고, 못 찾으면 버린다
+    const norm = (t) => String(t).toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
+    const same = (a, b) => a === b || (Math.min(a.length, b.length) >= 12 && (a.includes(b) || b.includes(a)));
+    let added = 0;
+    let fixed = 0;
+    const used = new Set();
+    for (const p of out.picks) {
+      if (added >= max) break;
+      const want = norm(p.original);
+      let a = pool[p.index];
+      if (!a || !same(norm(a.title), want)) {
+        a = pool.find((x) => same(norm(x.title), want));
+        if (!a) continue;
+        fixed++;
+      }
+      if (used.has(a.url)) continue;
+      used.add(a.url);
+      items.push({ title: String(p.title).replace(/^\[[^\]]+\]\s*/, "").slice(0, 200), url: a.url, source: a.source, published_at: a.published_at, topic: cat, note: String(p.note).slice(0, 300) });
+      added++;
     }
-    log(`[news] ${cat}: ${picks.length}개 (후보 ${pool.length})`);
+    log(`[news] ${cat}: ${added}개 (후보 ${pool.length}${fixed ? `, 번호 어긋남 ${fixed}건 바로잡음` : ''}${out.picks.length - added > 0 ? `, 확인 못 해 제외 ${out.picks.length - added}건` : ''})`);
     return out.headline;
   }
 
