@@ -3,7 +3,7 @@ import { getDigest, listDigestDates, type NewsDigest } from '../api/news';
 import { addDays } from '../lib/date';
 import { PageHeader, ErrorBanner, EmptyState, Panel, errMsg } from '../components/ui';
 
-const CATEGORIES = ['경제', '문화', '세계', '과학', '의학', 'IT', '생활'];
+const CATEGORIES = ['경제', '문화', '세계', '과학', '의학', '정신의학', 'IT', '생활'];
 
 /** "11월 9일 – 11월 15일" */
 function weekRange(start: string): string {
@@ -56,8 +56,8 @@ export default function News() {
     <div>
       <PageHeader
         eyebrow={selected ? weekRange(selected) : 'Weekly'}
-        title="지난주 소식"
-        subtitle="매일 보지 않아도 되게, 매주 월요일 아침 지난주(월~일) 주요 뉴스를 분야별로 정리합니다"
+        title="주간 소식"
+        subtitle="매일 보지 않아도 되게, 매주 금요일 아침 지난 1주일(금~목) 주요 뉴스를 분야별로 정리합니다"
       />
       <ErrorBanner error={error} onClose={() => setError(null)} />
 
@@ -83,7 +83,7 @@ export default function News() {
             <Panel>
               <EmptyState>
                 아직 정리된 주간 소식이 없습니다.
-                <span className="small">맥미니가 매일 제목만 모아 두었다가 매주 월요일 07:00에 정리합니다.</span>
+                <span className="small">맥미니가 매일 제목만 모아 두었다가 매주 금요일 07:00에 정리합니다.</span>
               </EmptyState>
             </Panel>
           ) : (

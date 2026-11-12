@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Point, RangeKey } from '../api/market';
 
-const H = 240;
-const PAD = { top: 12, right: 64, bottom: 26, left: 8 };
+const H = 280;
+const PAD = { top: 52, right: 64, bottom: 26, left: 8 }; // 위쪽 여백 = 툴팁 자리
 
 const seoul = (sec: number, opts: Intl.DateTimeFormatOptions) =>
   new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', ...opts }).format(new Date(sec * 1000));

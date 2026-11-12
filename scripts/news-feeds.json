@@ -14,5 +14,16 @@
   {"source": "한국경제", "hint": "IT", "url": "https://www.hankyung.com/feed/it"},
   {"source": "BBC", "hint": "IT", "url": "https://feeds.bbci.co.uk/news/technology/rss.xml"},
   {"source": "한국경제", "hint": "생활", "url": "https://www.hankyung.com/feed/life"},
-  {"source": "연합뉴스", "hint": "생활", "url": "https://www.yna.co.kr/rss/society.xml"}
+  {"source": "연합뉴스", "hint": "생활", "url": "https://www.yna.co.kr/rss/society.xml"},
+  {"source": "Google 뉴스", "hint": "과학", "url": "https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=ko&gl=KR&ceid=KR:ko"},
+  {"source": "Google 뉴스", "hint": "의학", "url": "https://news.google.com/rss/headlines/section/topic/HEALTH?hl=ko&gl=KR&ceid=KR:ko"},
+  {"source": "Medscape", "hint": "정신의학", "region": "해외", "url": "https://www.medscape.com/cx/rssfeeds/2692.xml"},
+  {"source": "Medscape", "hint": "정신의학", "region": "해외", "url": "https://news.google.com/rss/search?q=medscape+psychiatry+when:7d&hl=en-US&gl=US&ceid=US:en"},
+  {"source": "Medscape", "hint": "정신의학", "region": "해외", "url": "https://news.google.com/rss/search?q=site:medscape.com+(psychiatry+OR+depression+OR+schizophrenia+OR+ADHD+OR+antidepressant+OR+bipolar+OR+anxiety)+when:7d&hl=en-US&gl=US&ceid=US:en"},
+  {"source": "Psychiatric Times", "hint": "정신의학", "region": "해외", "url": "https://www.psychiatrictimes.com/rss"},
+  {"source": "MedPage Today", "hint": "정신의학", "region": "해외", "url": "https://www.medpagetoday.com/rss/psychiatry.xml"},
+  {"source": "Healio", "hint": "정신의학", "region": "해외", "url": "https://www.healio.com/sws/feed/news/psychiatry"},
+  {"source": "ScienceDaily", "hint": "정신의학", "region": "해외", "url": "https://www.sciencedaily.com/rss/mind_brain/mental_health.xml"},
+  {"source": "Google 뉴스", "hint": "정신의학", "region": "국내", "url": "https://news.google.com/rss/search?q=%EC%A0%95%EC%8B%A0%EA%B1%B4%EA%B0%95%EC%9D%98%ED%95%99%EA%B3%BC+when:7d&hl=ko&gl=KR&ceid=KR:ko"},
+  {"source": "Google 뉴스", "hint": "정신의학", "region": "국내", "url": "https://news.google.com/rss/search?q=%EC%A0%95%EC%8B%A0%EA%B1%B4%EA%B0%95+when:7d&hl=ko&gl=KR&ceid=KR:ko"}
 ]

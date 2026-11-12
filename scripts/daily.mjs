@@ -2,7 +2,7 @@
 // 맥미니에서 매일 실행하는 로컬 작업 (launchd가 호출)
 //   node scripts/daily.mjs meals   식단 AI 분석 (칼로리·탄단지·하루 인사이트)
 //   node scripts/daily.mjs collect 뉴스 제목만 로컬에 모아 두기 (매일, 화면 표시 없음)
-//   node scripts/daily.mjs news    지난주 월~일 주간 소식 정리 (매주 월요일)
+//   node scripts/daily.mjs news    지난 금~목 주간 소식 정리 (매주 금요일)
 //   node scripts/daily.mjs market  경제 동향: 관심 종목 시세·차트 갱신 (--missing: 새로 추가된 종목만)
 //   node scripts/daily.mjs all
 // 설정: scripts/.env.local (git에 올라가지 않음) — 아래 ENV 항목 참고
@@ -165,23 +165,24 @@ ${lines.join('\n')}`;
 
 // ---------- 주간 소식 ----------
 // RSS는 보통 반나절~이틀치만 담고 있어서, 매일 조용히 제목만 모아 두고(collect, 화면 표시 없음)
-// 매주 월요일에 지난주 월~일 기사를 분야별로 정리한다(news).
-const CATEGORIES = ['경제', '문화', '세계', '과학', '의학', 'IT', '생활'];
+// 매주 금요일에 지난 금~목 기사를 분야별로 정리한다(news).
+const CATEGORIES = ['경제', '문화', '세계', '과학', '의학', '정신의학', 'IT', '생활'];
 const CACHE = join(here, 'news-cache.json'); // git 제외
 const DAY = 86400 * 1000;
 
+const cdata = (s) => s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
 const decode = (s) =>
-  s
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, '&')
-    .trim();
+  cdata(
+    cdata(s)
+      .replace(/<[^>]+>/g, '')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&amp;/g, '&'),
+  ).trim(); // 일부 피드는 CDATA를 한 번 더 이스케이프해 둔다
 const tag = (block, name) => {
   const m = block.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, 'i'));
   return m ? decode(m[1]) : '';
 };
 
-async function fetchFeed({ source, hint, url }) {
+async function fetchFeed({ source, hint, region, url }) {
   try {
     const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (personal RSS reader)' }, signal: AbortSignal.timeout(20000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -191,7 +192,11 @@ async function fetchFeed({ source, hint, url }) {
       const atomLink = b.match(/<link[^>]*href="([^"]+)"/i)?.[1];
       const date = tag(b, 'pubDate') || tag(b, 'updated') || tag(b, 'dc:date');
       const t = date ? Date.parse(date) : NaN;
-      return { source, hint, title: tag(b, 'title'), url: tag(b, 'link') || atomLink || '', published_at: isNaN(t) ? null : new Date(t).toISOString() };
+      // Google 뉴스는 항목마다 원래 매체(<source>)가 있고 제목 끝에 " - 매체명"이 붙는다
+      const itemSource = tag(b, 'source');
+      let title = tag(b, 'title');
+      if (itemSource && title.endsWith(` - ${itemSource}`)) title = title.slice(0, -(itemSource.length + 3));
+      return { source: itemSource || source, hint, region: region ?? null, title, url: tag(b, 'link') || atomLink || '', published_at: isNaN(t) ? null : new Date(t).toISOString() };
     }).filter((i) => i.title && i.url);
   } catch (e) {
     log(`[collect] ${source}(${hint}) 실패: ${e.message}`);
@@ -219,23 +224,23 @@ async function runCollect() {
   log(`[collect] 새 기사 ${added}개, 보관 ${kept.length}개`);
 }
 
-/** 매주: 지난주 월~일 기사를 분야별 5~10개로 정리해 저장 (digest_date = 지난주 월요일) */
+/** 매주: 지난 금~목 기사를 분야별 5~10개로 정리해 저장 (digest_date = 시작 금요일) */
 async function runNews(userId) {
   await runCollect();
   if (DRY) return;
-  // 가장 최근에 끝난 한 주: 지난주 월요일 00:00 ~ 이번 주 월요일 00:00 (서울 기준)
+  // 가장 최근에 끝난 한 주: 지난주 금요일 00:00 ~ 이번 주 금요일 00:00 (서울 기준)
   const today = todaySeoul();
-  const wd = new Date(`${today}T00:00:00Z`).getUTCDay(); // 0=일 … 6=토
+  const wd = new Date(`${today}T00:00:00Z`).getUTCDay(); // 0=일 … 5=금 … 6=토
   const ymd = (ms) => new Date(ms).toISOString().slice(0, 10);
-  const thisMonday = ymd(Date.parse(`${today}T00:00:00Z`) - ((wd + 6) % 7) * DAY);
-  const weekStart = ymd(Date.parse(`${thisMonday}T00:00:00Z`) - 7 * DAY);
+  const thisFriday = ymd(Date.parse(`${today}T00:00:00Z`) - ((wd + 2) % 7) * DAY);
+  const weekStart = ymd(Date.parse(`${thisFriday}T00:00:00Z`) - 7 * DAY);
   const start = Date.parse(`${weekStart}T00:00:00+09:00`);
-  const end = Date.parse(`${thisMonday}T00:00:00+09:00`);
+  const end = Date.parse(`${thisFriday}T00:00:00+09:00`);
   const all = readCache().filter((i) => {
     const t = Date.parse(i.published_at ?? i.collected_at);
     return t >= start && t < end;
   });
-  log(`[news] ${weekStart}(월) ~ ${ymd(end - DAY)}(일), 후보 ${all.length}개`);
+  log(`[news] ${weekStart}(금) ~ ${ymd(Date.parse(`${thisFriday}T00:00:00Z`) - DAY)}(목), 후보 ${all.length}개`);
   if (all.length === 0) return;
 
   const schema = {
@@ -256,30 +261,52 @@ async function runNews(userId) {
 
   const items = [];
   const lines = [];
+  const RULES = `  - title: 한국어로 다듬은 제목 (영어 기사도 한국어로)
+  - note: 무슨 내용인지 한국어 한 문장 설명`;
+  const PSY = '읽는 사람은 정신건강의학과 의사이고, 디지털 디톡스 중이라 일주일에 한 번만 본다. 임상에 의미 있는 연구 결과, 치료·약물·가이드라인, 정책·제도, 진료 환경 변화 위주로. 일반인 대상 가벼운 건강 팁·광고성·같은 사건 중복 기사는 제외.';
+
+  /** 후보 목록에서 Gemini가 고른 기사를 items에 넣고 headline을 돌려준다 */
+  async function pick(cat, pool, task, max) {
+    if (pool.length === 0) return null;
+    const list = pool.map((i, n) => `${n}. [${i.source}] ${i.title}`).join('\n');
+    const out = await gemini(`${task}\n\n${list}`, schema);
+    const picks = out.picks.filter((p) => pool[p.index]).slice(0, max);
+    for (const p of picks) {
+      const a = pool[p.index];
+      items.push({ title: String(p.title).slice(0, 200), url: a.url, source: a.source, published_at: a.published_at, topic: cat, note: String(p.note).slice(0, 300) });
+    }
+    log(`[news] ${cat}: ${picks.length}개 (후보 ${pool.length})`);
+    return out.headline;
+  }
+
   for (const cat of CATEGORIES) {
     const pool = all.filter((i) => i.hint === cat);
-    if (pool.length === 0) continue;
-    const list = pool.map((i, n) => `${n}. [${i.source}] ${i.title}`).join('\n');
-    const prompt = `아래는 지난 1주일 동안 "${cat}" 분야 매체에서 모은 기사 제목이다. 디지털 디톡스 중이라 뉴스를 일주일에 한 번만 보는 사람을 위해 이번 주 "${cat}" 분야에서 꼭 알아둘 만한 주요 뉴스를 골라라.
-- picks: 5~10개. 같은 사건의 중복 기사는 하나만. 자극적·가십성·단순 사건사고보다 의미 있는 흐름과 큰 사건 위주.
-  - title: 한국어로 다듬은 제목 (영어 기사도 한국어로)
-  - note: 무슨 일인지 한국어 한 문장 설명
-- headline: 이번 주 "${cat}" 분야를 한 문장으로 요약
-
-${list}`;
     try {
-      const out = await gemini(prompt, schema);
-      const picks = out.picks.filter((p) => pool[p.index]).slice(0, 10);
-      for (const p of picks) {
-        const a = pool[p.index];
-        items.push({ title: String(p.title).slice(0, 200), url: a.url, source: a.source, published_at: a.published_at, topic: cat, note: String(p.note).slice(0, 300) });
+      if (cat === '정신의학') {
+        // 국내 2개 + 해외 8개를 따로 골라 개수를 지킨다. 해외는 Medscape를 목록 앞에 둔다.
+        const kr = pool.filter((i) => i.region !== '해외');
+        const intl = pool.filter((i) => i.region === '해외').sort((a, b) => (b.source === 'Medscape') - (a.source === 'Medscape'));
+        await pick(cat, kr, `아래는 지난 1주일 동안 모은 국내 정신건강 관련 기사 제목이다. ${PSY}
+- picks: 정확히 2개
+${RULES}
+- headline: 빈 문자열이어도 됨`, 2);
+        const headline = await pick(cat, intl, `아래는 지난 1주일 동안 모은 해외 정신의학 기사 제목이다. ${PSY}
+- picks: 8개. Medscape 기사를 3개 이상 포함하고(있다면), 나머지는 Psychiatric Times·MedPage Today·Healio·ScienceDaily 등에서 고르게.
+${RULES} (연구라면 대상·결과 핵심)
+- headline: 이번 주 정신의학 분야를 한국어 한 문장으로 요약`, 8);
+        if (headline) lines.push(`• ${cat}: ${headline}`);
+        continue;
       }
-      lines.push(`• ${cat}: ${out.headline}`);
-      log(`[news] ${cat}: ${picks.length}개 (후보 ${pool.length})`);
+      const headline = await pick(cat, pool, `아래는 지난 1주일 동안 "${cat}" 분야 매체에서 모은 기사 제목이다. 디지털 디톡스 중이라 뉴스를 일주일에 한 번만 보는 사람을 위해 이번 주 "${cat}" 분야에서 꼭 알아둘 만한 주요 뉴스를 골라라.
+- picks: 5~10개. 같은 사건의 중복 기사는 하나만. 자극적·가십성·단순 사건사고보다 의미 있는 흐름과 큰 사건 위주.
+${RULES}
+- headline: 이번 주 "${cat}" 분야를 한 문장으로 요약`, 10);
+      if (headline) lines.push(`• ${cat}: ${headline}`);
     } catch (e) {
       log(`[news] ${cat} 실패: ${e.message}`);
     }
   }
+
   if (items.length === 0) throw new Error('정리된 기사가 없습니다');
 
   const { error } = await db

@@ -503,16 +503,16 @@ a.news-item:hover { background: var(--surface-2); }
 .fall { color: var(--fall); font-weight: 700; }
 .flat { color: var(--muted); font-weight: 700; }
 .period-change { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
-.chart { position: relative; margin-top: 14px; touch-action: pan-y; user-select: none; }
+.chart { position: relative; margin-top: 6px; width: 100%; min-width: 0; contain: inline-size; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .chart svg { display: block; overflow: visible; }
 .chart-grid { stroke: var(--border); stroke-width: 1; }
 .chart-axis { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart-cross { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 3 3; }
 .chart-tip {
-  position: absolute; top: -6px; transform: translate(-50%, -100%); pointer-events: none;
+  position: absolute; top: 4px; transform: translateX(-50%); pointer-events: none;
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px;
   padding: 6px 10px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
 }
 .chart-tip .v { font-weight: 800; font-variant-numeric: tabular-nums; }
 .chart-tip .t { font-size: 0.75rem; color: var(--muted); }
-.chart-empty { height: 240px; display: grid; place-items: center; }
+.chart-empty { height: 280px; display: grid; place-items: center; }
