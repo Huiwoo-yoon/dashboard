@@ -76,12 +76,13 @@ npm run build
    - anon 키는 브라우저에 노출되는 공개 키라 Variables여도 괜찮지만, 신경 쓰이면 Secrets에 넣으세요.
 4. `main`에 push하면 *Actions* 탭에서 배포가 진행되고, 끝나면 `https://<아이디>.github.io/<저장소이름>/`에서 열립니다.
 
-## 4. 맥미니 매일 작업 (식단 분석 · 오늘의 소식)
+## 4. 맥미니 정기 작업 (식단 분석 · 주간 소식)
 
-웹은 기록만 하고, 분석·수집은 맥미니의 `scripts/daily.mjs`가 하루 한 번 실행합니다.
+웹은 기록만 하고, 분석·수집은 맥미니의 `scripts/daily.mjs`가 맡습니다.
 
-- **07:00 소식**: `scripts/news-feeds.json`의 RSS(연합뉴스·한경·매경·BBC·Bloomberg)에서 최근 36시간 기사를 모아 Gemini가 5~7줄 요약 + 주제별 기사 목록을 만들어 `dash_news_digests`에 저장
-- **23:00 식단**: 아직 분석 안 된 식단(`analyzed_at` 비어 있음, 최대 14일치)을 Gemini로 보내 음식 이름·kcal·탄단지를 채우고 하루 인사이트를 `dash_meal_insights`에 저장. 식단 내용을 고치면 다시 분석됩니다. 직접 입력한 kcal이 AI 추정치보다 우선합니다.
+- **매일 06:30 뉴스 제목 모으기**(`collect`): `scripts/news-feeds.json`의 분야별 RSS에서 제목만 받아 로컬 `scripts/news-cache.json`(git 제외)에 쌓습니다. 화면에는 아무것도 표시되지 않습니다. RSS는 반나절~이틀치만 담고 있어서 매일 모아야 한 주를 덮을 수 있습니다.
+- **매주 월요일 07:00 주간 소식**(`news`): 지난 7일치를 경제·문화·세계·과학·의학·IT·생활 분야별로 Gemini가 주요 뉴스 5~10개(한 줄 설명 포함)와 분야별 한 줄 요약으로 정리해 `dash_news_digests`에 저장. 소식 탭에서 주 단위로 봅니다.
+- **매일 23:00 식단**(`meals`): 아직 분석 안 된 식단(`analyzed_at` 비어 있음, 최대 14일치)을 Gemini로 보내 음식 이름·kcal·탄단지를 채우고 하루 인사이트를 `dash_meal_insights`에 저장. 식단 내용을 고치면 다시 분석됩니다. 직접 입력한 kcal이 AI 추정치보다 우선합니다.
 
 설정:
 
@@ -98,10 +99,10 @@ node scripts/daily.mjs all
 ```
 
 ```bash
-node scripts/daily.mjs news --dry-run
+node scripts/daily.mjs collect --dry-run
 ```
 
-매일 자동 실행 등록(launchd) / 해제:
+자동 실행 등록(launchd) / 해제:
 
 ```bash
 ./scripts/install-launchd.sh
@@ -112,9 +113,9 @@ node scripts/daily.mjs news --dry-run
 ```
 
 - 시간은 `install-launchd.sh` 안의 숫자를 고친 뒤 다시 실행하면 바뀝니다.
-- 로그: `~/Library/Logs/dashboard/news.log`, `meals.log`
-- 맥미니가 잠자기 중이었다면 깨어날 때 놓친 작업이 한 번 실행됩니다. 전원이 꺼져 있었다면 건너뜁니다(식단은 다음 날 밀린 것까지 분석).
-- 지금 바로 한 번 돌려 보기: `launchctl kickstart gui/$(id -u)/com.dashboard.daily-news`
+- 로그: `~/Library/Logs/dashboard/collect.log`, `news.log`, `meals.log`
+- 맥미니가 잠자기 중이었다면 깨어날 때 놓친 작업이 한 번 실행됩니다. 전원이 꺼져 있었다면 건너뜁니다(식단은 다음 날 밀린 것까지 분석). 로그아웃 상태에서는 실행되지 않습니다.
+- 지금 바로 한 번 돌려 보기: `launchctl kickstart gui/$(id -u)/com.dashboard.weekly-news` (또는 `com.dashboard.daily-meals`)
 
 ---
 
@@ -131,7 +132,7 @@ src/
   data/apps.json     앱 서랍 목록
 supabase/schema.sql  테이블 + RLS (002 포함 전체)
 supabase/002_update.sql  기존 프로젝트용 추가 변경
-scripts/daily.mjs    맥미니 매일 작업 (식단 분석·소식)
+scripts/daily.mjs    맥미니 정기 작업 (식단 분석·주간 소식)
 ```
 
 ### 앱 서랍에 앱 추가

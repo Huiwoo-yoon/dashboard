@@ -8,3 +8,4 @@ dist
 *.tsbuildinfo
 !.env.local.example
 *.local.sql
+scripts/news-cache.json

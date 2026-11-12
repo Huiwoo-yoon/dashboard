@@ -1,7 +1,18 @@
 [
-  {"source": "연합뉴스", "url": "https://www.yna.co.kr/rss/news.xml"},
-  {"source": "한국경제", "url": "https://www.hankyung.com/feed/economy"},
-  {"source": "매일경제", "url": "https://www.mk.co.kr/rss/30000001/"},
-  {"source": "BBC", "url": "https://feeds.bbci.co.uk/news/world/rss.xml"},
-  {"source": "Bloomberg", "url": "https://feeds.bloomberg.com/markets/news.rss"}
+  {"source": "연합뉴스", "hint": "경제", "url": "https://www.yna.co.kr/rss/economy.xml"},
+  {"source": "한국경제", "hint": "경제", "url": "https://www.hankyung.com/feed/economy"},
+  {"source": "Bloomberg", "hint": "경제", "url": "https://feeds.bloomberg.com/markets/news.rss"},
+  {"source": "연합뉴스", "hint": "문화", "url": "https://www.yna.co.kr/rss/culture.xml"},
+  {"source": "한겨레", "hint": "문화", "url": "https://www.hani.co.kr/rss/culture/"},
+  {"source": "BBC", "hint": "문화", "url": "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml"},
+  {"source": "연합뉴스", "hint": "세계", "url": "https://www.yna.co.kr/rss/international.xml"},
+  {"source": "BBC", "hint": "세계", "url": "https://feeds.bbci.co.uk/news/world/rss.xml"},
+  {"source": "한겨레", "hint": "과학", "url": "https://www.hani.co.kr/rss/science/"},
+  {"source": "BBC", "hint": "과학", "url": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml"},
+  {"source": "연합뉴스", "hint": "의학", "url": "https://www.yna.co.kr/rss/health.xml"},
+  {"source": "BBC", "hint": "의학", "url": "https://feeds.bbci.co.uk/news/health/rss.xml"},
+  {"source": "한국경제", "hint": "IT", "url": "https://www.hankyung.com/feed/it"},
+  {"source": "BBC", "hint": "IT", "url": "https://feeds.bbci.co.uk/news/technology/rss.xml"},
+  {"source": "한국경제", "hint": "생활", "url": "https://www.hankyung.com/feed/life"},
+  {"source": "연합뉴스", "hint": "생활", "url": "https://www.yna.co.kr/rss/society.xml"}
 ]

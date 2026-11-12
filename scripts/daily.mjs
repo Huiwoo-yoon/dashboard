@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // 맥미니에서 매일 실행하는 로컬 작업 (launchd가 호출)
 //   node scripts/daily.mjs meals   식단 AI 분석 (칼로리·탄단지·하루 인사이트)
-//   node scripts/daily.mjs news    오늘의 소식 수집·요약
+//   node scripts/daily.mjs collect 뉴스 제목만 로컬에 모아 두기 (매일, 화면 표시 없음)
+//   node scripts/daily.mjs news    지난 7일 주간 소식 정리 (매주 월요일)
 //   node scripts/daily.mjs all
 // 설정: scripts/.env.local (git에 올라가지 않음) — 아래 ENV 항목 참고
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
@@ -161,7 +162,13 @@ ${lines.join('\n')}`;
   }
 }
 
-// ---------- 오늘의 소식 ----------
+// ---------- 주간 소식 ----------
+// RSS는 보통 반나절~이틀치만 담고 있어서, 매일 조용히 제목만 모아 두고(collect, 화면 표시 없음)
+// 매주 월요일에 지난 7일치를 분야별로 정리한다(news).
+const CATEGORIES = ['경제', '문화', '세계', '과학', '의학', 'IT', '생활'];
+const CACHE = join(here, 'news-cache.json'); // git 제외
+const DAY = 86400 * 1000;
+
 const decode = (s) =>
   s
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -173,68 +180,119 @@ const tag = (block, name) => {
   return m ? decode(m[1]) : '';
 };
 
-async function fetchFeed({ source, url }) {
+async function fetchFeed({ source, hint, url }) {
   try {
     const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (personal RSS reader)' }, signal: AbortSignal.timeout(20000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const xml = await res.text();
     const blocks = xml.match(/<item[\s>][\s\S]*?<\/item>/gi) ?? xml.match(/<entry[\s>][\s\S]*?<\/entry>/gi) ?? [];
-    return blocks.slice(0, 20).map((b) => {
+    return blocks.slice(0, 40).map((b) => {
       const atomLink = b.match(/<link[^>]*href="([^"]+)"/i)?.[1];
       const date = tag(b, 'pubDate') || tag(b, 'updated') || tag(b, 'dc:date');
-      return { source, title: tag(b, 'title'), url: tag(b, 'link') || atomLink || '', published_at: date ? new Date(date).toISOString() : null };
+      const t = date ? Date.parse(date) : NaN;
+      return { source, hint, title: tag(b, 'title'), url: tag(b, 'link') || atomLink || '', published_at: isNaN(t) ? null : new Date(t).toISOString() };
     }).filter((i) => i.title && i.url);
   } catch (e) {
-    log(`[news] ${source} 실패: ${e.message}`);
+    log(`[collect] ${source}(${hint}) 실패: ${e.message}`);
     return [];
   }
 }
 
-async function runNews(userId) {
+const readCache = () => (existsSync(CACHE) ? JSON.parse(readFileSync(CACHE, 'utf8')) : []);
+
+/** 매일: 피드에서 제목만 모아 로컬 캐시에 쌓는다 (9일 지난 것은 버림) */
+async function runCollect() {
   const feeds = JSON.parse(readFileSync(join(here, 'news-feeds.json'), 'utf8'));
-  const since = Date.now() - 36 * 3600 * 1000;
-  const all = (await Promise.all(feeds.map(fetchFeed)))
-    .flat()
-    .filter((i) => !i.published_at || Date.parse(i.published_at) >= since);
-  log(`[news] 기사 ${all.length}개 수집`);
+  const now = new Date().toISOString();
+  const fresh = (await Promise.all(feeds.map(fetchFeed))).flat();
   if (DRY) {
-    for (const f of feeds) log(`  ${f.source}: ${all.filter((i) => i.source === f.source).length}개`, all.find((i) => i.source === f.source)?.title ?? '');
+    for (const f of feeds) log(`  ${f.source}(${f.hint}): ${fresh.filter((i) => i.url && i.hint === f.hint && i.source === f.source).length}개`);
     return;
   }
+  const byUrl = new Map(readCache().map((i) => [i.url, i]));
+  let added = 0;
+  for (const i of fresh) if (!byUrl.has(i.url)) { byUrl.set(i.url, { ...i, collected_at: now }); added++; }
+  const cutoff = Date.now() - 9 * DAY;
+  const kept = [...byUrl.values()].filter((i) => Date.parse(i.published_at ?? i.collected_at) >= cutoff);
+  writeFileSync(CACHE, JSON.stringify(kept));
+  log(`[collect] 새 기사 ${added}개, 보관 ${kept.length}개`);
+}
+
+/** 매주: 지난 7일치를 분야별 5~10개로 정리해 저장 */
+async function runNews(userId) {
+  await runCollect();
+  if (DRY) return;
+  const end = Date.now();
+  const start = end - 7 * DAY;
+  const weekStart = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(start));
+  const all = readCache().filter((i) => {
+    const t = Date.parse(i.published_at ?? i.collected_at);
+    return t >= start && t <= end;
+  });
+  log(`[news] ${weekStart}부터 7일, 후보 ${all.length}개`);
   if (all.length === 0) return;
 
-  const list = all.map((i, n) => `${n}. [${i.source}] ${i.title}`).join('\n');
-  const prompt = `아래는 오늘 아침 여러 매체에서 모은 뉴스 제목 목록이다. 바쁜 직장인이 아침에 3분 안에 읽을 "오늘의 소식"을 만들어라.
-- picks: 중요한 기사 12~18개를 골라 index와 topic(경제·시장 / 국내 / 국제 / 산업·기술 / 생활 중 하나)을 붙여라. 같은 사건의 중복 기사는 하나만.
-- summary: 한국어로 5~7줄. 각 줄은 "• "로 시작하는 한 문장 요약. 시장·경제 흐름을 먼저, 그다음 국내·국제 주요 이슈. 영어 기사도 한국어로.
-
-${list}`;
   const schema = {
     type: 'OBJECT',
     properties: {
-      summary: { type: 'STRING' },
-      picks: { type: 'ARRAY', items: { type: 'OBJECT', properties: { index: { type: 'INTEGER' }, topic: { type: 'STRING' } }, required: ['index', 'topic'] } },
+      headline: { type: 'STRING' },
+      picks: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: { index: { type: 'INTEGER' }, title: { type: 'STRING' }, note: { type: 'STRING' } },
+          required: ['index', 'title', 'note'],
+        },
+      },
     },
-    required: ['summary', 'picks'],
+    required: ['headline', 'picks'],
   };
-  const out = await gemini(prompt, schema);
-  const items = out.picks
-    .filter((p) => all[p.index])
-    .map((p) => ({ ...all[p.index], topic: p.topic }));
+
+  const items = [];
+  const lines = [];
+  for (const cat of CATEGORIES) {
+    const pool = all.filter((i) => i.hint === cat);
+    if (pool.length === 0) continue;
+    const list = pool.map((i, n) => `${n}. [${i.source}] ${i.title}`).join('\n');
+    const prompt = `아래는 지난 1주일 동안 "${cat}" 분야 매체에서 모은 기사 제목이다. 디지털 디톡스 중이라 뉴스를 일주일에 한 번만 보는 사람을 위해 이번 주 "${cat}" 분야에서 꼭 알아둘 만한 주요 뉴스를 골라라.
+- picks: 5~10개. 같은 사건의 중복 기사는 하나만. 자극적·가십성·단순 사건사고보다 의미 있는 흐름과 큰 사건 위주.
+  - title: 한국어로 다듬은 제목 (영어 기사도 한국어로)
+  - note: 무슨 일인지 한국어 한 문장 설명
+- headline: 이번 주 "${cat}" 분야를 한 문장으로 요약
+
+${list}`;
+    try {
+      const out = await gemini(prompt, schema);
+      const picks = out.picks.filter((p) => pool[p.index]).slice(0, 10);
+      for (const p of picks) {
+        const a = pool[p.index];
+        items.push({ title: String(p.title).slice(0, 200), url: a.url, source: a.source, published_at: a.published_at, topic: cat, note: String(p.note).slice(0, 300) });
+      }
+      lines.push(`• ${cat}: ${out.headline}`);
+      log(`[news] ${cat}: ${picks.length}개 (후보 ${pool.length})`);
+    } catch (e) {
+      log(`[news] ${cat} 실패: ${e.message}`);
+    }
+  }
+  if (items.length === 0) throw new Error('정리된 기사가 없습니다');
 
   const { error } = await db
     .from('dash_news_digests')
-    .upsert({ user_id: userId, digest_date: todaySeoul(), summary: out.summary, items }, { onConflict: 'user_id,digest_date' });
+    .upsert({ user_id: userId, digest_date: weekStart, summary: lines.join('\n'), items }, { onConflict: 'user_id,digest_date' });
   if (error) throw error;
-  log(`[news] ${todaySeoul()} 요약 저장 (${items.length}개 기사)`);
+  log(`[news] ${weekStart} 주간 소식 저장 (${items.length}개 기사)`);
 }
 
 // ---------- 실행 ----------
 const cmd = process.argv[2] || 'all';
 try {
-  const userId = DRY ? null : await resolveUserId();
-  if ((cmd === 'meals' || cmd === 'all') && !DRY) await runMeals(userId);
-  if (cmd === 'news' || cmd === 'all') await runNews(userId);
+  if (cmd === 'collect') {
+    await runCollect();
+  } else {
+    const userId = DRY ? null : await resolveUserId();
+    if ((cmd === 'meals' || cmd === 'all') && !DRY) await runMeals(userId);
+    if (cmd === 'news' || cmd === 'all') await runNews(userId);
+  }
   log('[done]', cmd);
 } catch (e) {
   console.error(new Date().toISOString(), '[error]', e.message);

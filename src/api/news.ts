@@ -6,6 +6,7 @@ export interface NewsItem {
   source: string;
   published_at: string | null;
   topic: string | null;
+  note?: string;
 }
 
 export interface NewsDigest {
@@ -25,13 +26,13 @@ export async function getDigest(date: string): Promise<NewsDigest | null> {
   return data as NewsDigest | null;
 }
 
-/** 소식이 있는 날짜 목록 (달력 표시용) */
-export async function listDigestDates(from: string, to: string): Promise<string[]> {
+/** 주간 소식 시작일 목록 (최근 순) */
+export async function listDigestDates(limit = 12): Promise<string[]> {
   const { data, error } = await supabase
     .from('dash_news_digests')
     .select('digest_date')
-    .gte('digest_date', from)
-    .lte('digest_date', to);
+    .order('digest_date', { ascending: false })
+    .limit(limit);
   if (error) throw error;
   return (data ?? []).map((d) => d.digest_date as string);
 }

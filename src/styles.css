@@ -475,3 +475,9 @@ textarea:focus { border-color: var(--text); }
 a.news-item:hover { background: var(--surface-2); }
 .news-item .src { flex: none; width: 76px; font-size: 0.72rem; font-weight: 700; color: var(--muted); padding-top: 2px; }
 .news-item .ttl { font-weight: 600; font-size: 0.92rem; }
+.news-item .ttl { display: block; }
+.news-item .note { display: block; margin-top: 3px; font-size: 0.84rem; color: var(--muted); line-height: 1.5; }
+.week-item { display: block; width: 100%; text-align: left; padding: 12px 20px; min-height: 44px; border: none; border-bottom: 1px solid var(--border); background: none; color: inherit; font: inherit; font-size: 0.9rem; cursor: pointer; }
+.week-item:last-child { border-bottom: none; }
+.week-item:hover { background: var(--surface-2); }
+.week-item.active { font-weight: 700; background: var(--surface-2); }
