@@ -1,6 +1,6 @@
 # 🗂️ My Dashboard
 
-GitHub Pages에 올리는 개인 대시보드. 홈(앱 서랍)은 누구나 볼 수 있고, Todo·운동·식단은 로그인한 본인만 볼 수 있습니다.
+GitHub Pages에 올리는 개인 대시보드. 홈(앱 서랍)은 누구나 볼 수 있고, Todo·운동·식단·소식은 로그인한 본인만 볼 수 있습니다.
 
 - **스택**: Vite + React + TypeScript, HashRouter, Supabase(Auth + Postgres + RLS)
 - **배포**: `main`에 push → GitHub Actions → GitHub Pages
@@ -18,6 +18,8 @@ GitHub Pages에 올리는 개인 대시보드. 홈(앱 서랍)은 누구나 볼 
 2. **스키마 실행** — 왼쪽 메뉴 *SQL Editor* → New query → `supabase/schema.sql` 전체 붙여넣기 → **Run**
    - 테이블 4개(dash_todos, dash_workout_items, dash_workout_logs, dash_meals) + RLS 정책이 만들어집니다.
    - *Table Editor*에서 각 테이블에 🔒 `RLS enabled`가 표시되는지 확인하세요.
+   - 이전 버전 스키마를 이미 실행했다면 `supabase/002_update.sql`만 추가로 실행합니다 (운동 시간대·장소·메모, 식단 영양 분석, 인사이트, 소식 테이블). 여러 번 실행해도 안전합니다.
+   - (선택) 운동 루틴 초기값: `supabase/seed_routine.local.sql`의 이메일을 바꿔 실행. 건강 정보가 들어 있어 git에서 제외된 파일입니다.
 3. **내 계정 만들기** — *Authentication → Users → Add user → Create new user*
    - 이메일 + 비밀번호 입력, **Auto Confirm User** 체크
 4. **회원가입 막기** — *Authentication → Sign In / Providers*
@@ -32,7 +34,7 @@ GitHub Pages에 올리는 개인 대시보드. 홈(앱 서랍)은 누구나 볼 
 6. **키 복사** — *Project Settings → API* (또는 *API Keys*)
    - `Project URL` → `VITE_SUPABASE_URL`
    - `anon` `public` 키 → `VITE_SUPABASE_ANON_KEY`
-   - ❌ `service_role` 키는 절대 사용하지 마세요 (RLS를 우회합니다).
+   - ❌ `service_role` 키는 웹 코드·`.env`·GitHub에 절대 넣지 마세요 (RLS를 우회합니다). 유일한 예외는 아래 4번의 맥미니 로컬 스크립트(`scripts/.env.local`)입니다.
 
 ## 2. 로컬 실행
 
@@ -74,6 +76,46 @@ npm run build
    - anon 키는 브라우저에 노출되는 공개 키라 Variables여도 괜찮지만, 신경 쓰이면 Secrets에 넣으세요.
 4. `main`에 push하면 *Actions* 탭에서 배포가 진행되고, 끝나면 `https://<아이디>.github.io/<저장소이름>/`에서 열립니다.
 
+## 4. 맥미니 매일 작업 (식단 분석 · 오늘의 소식)
+
+웹은 기록만 하고, 분석·수집은 맥미니의 `scripts/daily.mjs`가 하루 한 번 실행합니다.
+
+- **07:00 소식**: `scripts/news-feeds.json`의 RSS(연합뉴스·한경·매경·BBC·Bloomberg)에서 최근 36시간 기사를 모아 Gemini가 5~7줄 요약 + 주제별 기사 목록을 만들어 `dash_news_digests`에 저장
+- **23:00 식단**: 아직 분석 안 된 식단(`analyzed_at` 비어 있음, 최대 14일치)을 Gemini로 보내 음식 이름·kcal·탄단지를 채우고 하루 인사이트를 `dash_meal_insights`에 저장. 식단 내용을 고치면 다시 분석됩니다. 직접 입력한 kcal이 AI 추정치보다 우선합니다.
+
+설정:
+
+```bash
+cp scripts/.env.local.example scripts/.env.local && chmod 600 scripts/.env.local
+```
+
+`scripts/.env.local`에 `SUPABASE_URL`(또는 `NEXT_PUBLIC_SUPABASE_URL`), `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`를 채웁니다. 선택: `GEMINI_MODEL`(기본 `gemini-3.5-flash-lite`), `DASH_USER_EMAIL`, `MEAL_CONTEXT`(인사이트에 반영할 내 상황 — Gemini로 전송됨).
+
+수동 실행 / 테스트:
+
+```bash
+node scripts/daily.mjs all
+```
+
+```bash
+node scripts/daily.mjs news --dry-run
+```
+
+매일 자동 실행 등록(launchd) / 해제:
+
+```bash
+./scripts/install-launchd.sh
+```
+
+```bash
+./scripts/uninstall-launchd.sh
+```
+
+- 시간은 `install-launchd.sh` 안의 숫자를 고친 뒤 다시 실행하면 바뀝니다.
+- 로그: `~/Library/Logs/dashboard/news.log`, `meals.log`
+- 맥미니가 잠자기 중이었다면 깨어날 때 놓친 작업이 한 번 실행됩니다. 전원이 꺼져 있었다면 건너뜁니다(식단은 다음 날 밀린 것까지 분석).
+- 지금 바로 한 번 돌려 보기: `launchctl kickstart gui/$(id -u)/com.dashboard.daily-news`
+
 ---
 
 ## 구조
@@ -85,9 +127,11 @@ src/
   lib/date.ts        Asia/Seoul 기준 날짜 유틸
   api/               데이터 접근 함수 (pages는 여기만 호출)
   components/        Layout(사이드바/탭바), 인증, 공통 UI
-  pages/             Home, Todo, Workout, Meals, Login
+  pages/             Home, Todo, Workout, Meals, News, Login
   data/apps.json     앱 서랍 목록
-supabase/schema.sql  테이블 + RLS
+supabase/schema.sql  테이블 + RLS (002 포함 전체)
+supabase/002_update.sql  기존 프로젝트용 추가 변경
+scripts/daily.mjs    맥미니 매일 작업 (식단 분석·소식)
 ```
 
 ### 앱 서랍에 앱 추가
@@ -109,5 +153,5 @@ supabase/schema.sql  테이블 + RLS
 
 ### 나중에 붙일 것 (이번 범위 제외)
 
-- 뉴스/시세 페이지 → `src/pages/`에 페이지, `src/api/`에 함수, `src/routes.ts`에 한 줄
-- 로컬 백업 → 이 맥미니에서 주기적으로 실행하는 스크립트(launchd)로 Supabase 데이터를 내려받는 방식. 이때만 서버 쪽 키가 필요하며 **맥미니 로컬에만** 보관합니다.
+- 시세 페이지 → `src/pages/`에 페이지, `src/api/`에 함수, `src/routes.ts`에 한 줄
+- 로컬 백업 → `scripts/`에 명령을 추가해 같은 launchd 방식으로 실행 (키는 `scripts/.env.local` 재사용)

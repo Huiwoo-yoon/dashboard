@@ -5,7 +5,12 @@ export interface WorkoutItem {
   name: string;
   sort_order: number;
   active: boolean;
+  time_label: string | null;
+  place: string | null;
+  note: string | null;
 }
+
+export type WorkoutItemInput = Pick<WorkoutItem, 'name' | 'time_label' | 'place' | 'note'>;
 
 export interface WorkoutLog {
   item_id: string;
@@ -13,11 +18,13 @@ export interface WorkoutLog {
   done: boolean;
 }
 
+const ITEM_COLS = 'id, name, sort_order, active, time_label, place, note';
+
 /** 현재 사용 중인 루틴 항목 (순서대로) */
 export async function listActiveItems(): Promise<WorkoutItem[]> {
   const { data, error } = await supabase
     .from('dash_workout_items')
-    .select('id, name, sort_order, active')
+    .select(ITEM_COLS)
     .eq('active', true)
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true });
@@ -25,12 +32,18 @@ export async function listActiveItems(): Promise<WorkoutItem[]> {
   return data ?? [];
 }
 
-export async function addItem(name: string, sort_order: number): Promise<WorkoutItem> {
+export async function addItem(input: WorkoutItemInput, sort_order: number): Promise<WorkoutItem> {
   const { data, error } = await supabase
     .from('dash_workout_items')
-    .insert({ name, sort_order })
-    .select('id, name, sort_order, active')
+    .insert({ ...input, sort_order })
+    .select(ITEM_COLS)
     .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateItem(id: string, patch: Partial<WorkoutItemInput>): Promise<WorkoutItem> {
+  const { data, error } = await supabase.from('dash_workout_items').update(patch).eq('id', id).select(ITEM_COLS).single();
   if (error) throw error;
   return data;
 }

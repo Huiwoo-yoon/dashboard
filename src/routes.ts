@@ -4,6 +4,7 @@ import Home from './pages/Home';
 import Todo from './pages/Todo';
 import Workout from './pages/Workout';
 import Meals from './pages/Meals';
+import News from './pages/News';
 
 export interface AppRoute {
   path: string;
@@ -15,12 +16,13 @@ export interface AppRoute {
 }
 
 /**
- * 메뉴 = 라우트. 새 페이지(뉴스, 시세 등)는 여기에 한 줄 추가하면
- * 사이드바/하단 탭바/라우터에 함께 반영된다.
+ * 메뉴 = 라우트. 여기 순서대로 사이드바/하단 탭바에 표시된다.
+ * '/'는 로그인 상태면 첫 메뉴(Todo), 아니면 앱 서랍으로 보낸다 (App.tsx).
  */
 export const routes: AppRoute[] = [
-  { path: '/', label: '앱 서랍', icon: 'grid', component: Home, requiresAuth: false },
   { path: '/todo', label: 'Todo', icon: 'check', component: Todo, requiresAuth: true },
   { path: '/workout', label: '운동', icon: 'activity', component: Workout, requiresAuth: true },
   { path: '/meals', label: '식단', icon: 'meal', component: Meals, requiresAuth: true },
+  { path: '/news', label: '소식', icon: 'news', component: News, requiresAuth: true },
+  { path: '/apps', label: '앱 서랍', icon: 'grid', component: Home, requiresAuth: false },
 ];

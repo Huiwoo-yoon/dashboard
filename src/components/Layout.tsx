@@ -20,7 +20,7 @@ function Brand() {
 export function Layout({ children }: { children: ReactNode }) {
   const { session } = useAuth();
   const navigate = useNavigate();
-  const logout = () => signOut().then(() => navigate('/'));
+  const logout = () => signOut().then(() => navigate('/apps'));
 
   return (
     <div className="shell">
@@ -29,7 +29,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <Brand />
         <nav className="side-nav">
           {routes.map((r) => (
-            <NavLink key={r.path} to={r.path} end={r.path === '/'} className="side-link">
+            <NavLink key={r.path} to={r.path} className="side-link">
               <Icon name={r.icon} />
               <span>{r.label}</span>
               {r.requiresAuth && !session && (
@@ -78,7 +78,7 @@ export function Layout({ children }: { children: ReactNode }) {
       {/* 모바일: 하단 탭바 */}
       <nav className="tabbar">
         {routes.map((r) => (
-          <NavLink key={r.path} to={r.path} end={r.path === '/'} className="tab-link">
+          <NavLink key={r.path} to={r.path} className="tab-link">
             <Icon name={r.icon} size={22} />
             <span>{r.label}</span>
           </NavLink>

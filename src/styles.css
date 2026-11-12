@@ -403,3 +403,75 @@ a.app-row:hover { background: var(--surface-2); }
 .tag.status-개발중 { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--border)); }
 .tag.status-보관 { color: var(--muted); }
 .local-note { font-size: 0.7rem; }
+
+/* ============================================================
+   달력
+   ============================================================ */
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin: -8px -8px 8px; }
+.cal-head strong { font-size: 0.98rem; font-weight: 800; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-week { text-align: center; font-size: 0.7rem; font-weight: 700; color: var(--muted); padding: 4px 0; }
+.cal-week.sun { color: var(--danger); }
+.cal-day {
+  position: relative; aspect-ratio: 1 / 1; min-height: 40px;
+  border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+  background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  font-variant-numeric: tabular-nums; padding: 0;
+}
+.cal-day[style] { background: color-mix(in srgb, var(--ink) calc(var(--lv) * 100%), transparent); }
+.cal-day.full { background: var(--ink); color: var(--ink-text); }
+.cal-day:hover { border-color: var(--border-strong); }
+.cal-day.out { opacity: 0.35; }
+.cal-day.today .cal-num { text-decoration: underline; text-underline-offset: 3px; font-weight: 800; }
+.cal-day.selected { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.cal-num { font-size: 0.86rem; font-weight: 600; line-height: 1; }
+.cal-label { font-size: 0.6rem; color: inherit; opacity: 0.75; line-height: 1; }
+.cal-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.7; }
+.cal-dot.alert { background: var(--danger); opacity: 1; }
+
+/* 달력 + 하루 화면 2단 */
+@media (min-width: 1100px) {
+  .day-layout { display: grid; grid-template-columns: 340px 1fr; gap: 16px; align-items: start; }
+  .day-layout > .panel { margin-bottom: 0; }
+  .day-layout .day-side { position: sticky; top: 24px; }
+}
+.day-side .panel { margin-bottom: 16px; }
+
+/* 운동 루틴 타임라인 */
+.slot-meta { display: flex; gap: 6px; align-items: center; font-size: 0.75rem; color: var(--muted); font-weight: 600; }
+.slot-meta .time { color: var(--text); font-weight: 800; font-variant-numeric: tabular-nums; }
+.slot-note { font-size: 0.8rem; color: var(--muted); font-weight: 400; margin-top: 2px; white-space: pre-line; }
+.slot-num {
+  width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border-strong);
+  display: grid; place-items: center; font-size: 0.75rem; font-weight: 800; flex: none; color: var(--muted);
+}
+.check-row.slot { align-items: flex-start; padding: 10px 0; }
+.check-row.slot .check { margin-top: 2px; }
+.item-body { display: grid; gap: 2px; min-width: 0; }
+.field-grid { display: grid; gap: 8px; }
+@media (min-width: 600px) { .field-grid { grid-template-columns: 1fr 1fr; } .field-grid .wide { grid-column: 1 / -1; } }
+textarea {
+  width: 100%; min-height: 72px; padding: 10px 14px; resize: vertical;
+  border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); outline: none; font: inherit; color: inherit;
+}
+textarea:focus { border-color: var(--text); }
+
+/* 영양 */
+.macro-bar { display: flex; height: 10px; border-radius: 3px; overflow: hidden; background: var(--track); }
+.macro-bar span { display: block; height: 100%; }
+.macro-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 0.8rem; color: var(--text-2); }
+.macro-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.m-p { background: var(--ink); }
+.m-c { background: color-mix(in srgb, var(--ink) 50%, var(--track)); }
+.m-f { background: color-mix(in srgb, var(--ink) 22%, var(--track)); }
+.meal-sub { font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pending { font-size: 0.72rem; color: var(--muted); border: 1px dashed var(--border-strong); border-radius: 4px; padding: 1px 6px; }
+.insight { font-size: 0.9rem; line-height: 1.65; color: var(--text-2); white-space: pre-line; margin: 0; }
+
+/* 뉴스 */
+.news-summary { font-size: 0.95rem; line-height: 1.75; white-space: pre-line; margin: 0; }
+.news-item { display: flex; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--border); text-decoration: none; }
+.news-item:last-child { border-bottom: none; }
+a.news-item:hover { background: var(--surface-2); }
+.news-item .src { flex: none; width: 76px; font-size: 0.72rem; font-weight: 700; color: var(--muted); padding-top: 2px; }
+.news-item .ttl { font-weight: 600; font-size: 0.92rem; }
