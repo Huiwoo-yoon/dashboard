@@ -154,6 +154,12 @@ svg { flex: none; }
   .side-link:hover { color: #fff; background: rgba(255, 255, 255, 0.04); }
   .side-link.active { background: var(--side-active); color: #fff; font-weight: 700; }
   .side-link .lock { margin-left: auto; color: var(--side-muted); display: grid; }
+  .side-sublink {
+    display: flex; align-items: center; min-height: 36px; padding: 0 14px 0 46px; border-radius: 8px;
+    text-decoration: none; color: var(--side-muted); font-size: 0.9rem;
+  }
+  .side-sublink:hover { color: #fff; }
+  .side-sublink.active { color: #fff; font-weight: 700; }
   .side-account {
     margin-top: auto; display: flex; align-items: center; gap: 10px;
     padding: 12px; border: 1px solid var(--side-border); border-radius: 10px;
@@ -528,3 +534,36 @@ a.news-item:hover { background: var(--surface-2); }
 .workout-counts .dots { display: inline-flex; gap: 4px; flex-shrink: 0; }
 .workout-counts .dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--track); }
 .workout-counts .dots i.on { background: var(--ink); }
+
+/* 그룹 탭 안 하위 메뉴 (폰) */
+.subnav { display: flex; gap: 6px; margin: -4px 0 16px; overflow-x: auto; scrollbar-width: none; }
+.subnav-link {
+  flex: none; min-height: 36px; padding: 0 14px; border-radius: 18px; display: inline-flex; align-items: center;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+  text-decoration: none; font-size: 0.86rem; font-weight: 500;
+}
+.subnav-link.active { background: var(--ink); border-color: var(--ink); color: var(--surface); font-weight: 700; }
+@media (min-width: 900px) { .subnav { display: none; } }
+
+/* 관리: 건강 기록 · 차량 */
+.btn.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
+.field-label { display: grid; gap: 6px; font-size: 0.82rem; color: var(--text-2); }
+.note-cat { display: inline-block; font-size: 0.72rem; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; margin-right: 8px; }
+.sub-title { font-size: 0.84rem; margin: 18px 0 8px; color: var(--text); }
+.status-badge { flex: none; font-size: 0.72rem; font-weight: 700; border-radius: 4px; padding: 2px 7px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.status-badge.watch, .status-badge.soon { color: var(--text); border-color: var(--text); }
+.status-badge.concern, .status-badge.overdue { color: var(--danger); border-color: var(--danger); }
+.status-badge.unknown { border-style: dashed; }
+.insight-items { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 10px; font-size: 0.9rem; line-height: 1.6; color: var(--text-2); }
+.insight-items li { display: flex; gap: 10px; align-items: baseline; }
+.insight-items strong { color: var(--text); }
+.table-scroll { overflow-x: auto; padding: 0 0 6px; }
+.lab-table { border-collapse: collapse; width: 100%; font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+.lab-table th, .lab-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+.lab-table tr:last-child th, .lab-table tr:last-child td { border-bottom: none; }
+.lab-table thead th { font-size: 0.74rem; color: var(--muted); font-weight: 600; }
+.lab-table th:first-child { text-align: left; position: sticky; left: 0; background: var(--surface); font-weight: 600; padding-left: 20px; }
+.lab-table th small { display: block; font-weight: 400; color: var(--muted); font-size: 0.7rem; }
+.lab-table td.abn { color: var(--danger); font-weight: 700; }
+.lab-table.full td { text-align: left; white-space: normal; }
+.cycle-row { flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 10px; }

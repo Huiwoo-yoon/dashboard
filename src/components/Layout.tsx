@@ -29,13 +29,20 @@ export function Layout({ children }: { children: ReactNode }) {
         <Brand />
         <nav className="side-nav">
           {routes.map((r) => (
-            <NavLink key={r.path} to={r.path} className="side-link">
-              <Icon name={r.icon} />
-              <span>{r.label}</span>
-              {r.requiresAuth && !session && (
-                <span className="lock"><Icon name="lock" size={14} /></span>
-              )}
-            </NavLink>
+            <div key={r.path}>
+              <NavLink to={r.path} className="side-link">
+                <Icon name={r.icon} />
+                <span>{r.label}</span>
+                {r.requiresAuth && !session && (
+                  <span className="lock"><Icon name="lock" size={14} /></span>
+                )}
+              </NavLink>
+              {r.children?.map((c) => (
+                <NavLink key={c.path} to={c.path} className="side-sublink">
+                  {c.label}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="side-account">
