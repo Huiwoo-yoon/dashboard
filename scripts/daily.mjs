@@ -6,6 +6,7 @@
 //   node scripts/daily.mjs market  경제 동향: 관심 종목 시세·차트 갱신 (--missing: 새로 추가된 종목만)
 //   node scripts/daily.mjs health  주간 건강 리포트: 지난 월~일 식단·운동·체중 평가 (매주 월요일, --week 2026-11-09 로 특정 주)
 //   node scripts/daily.mjs checkup 건강검진 AI 인사이트 (기록·메모가 바뀌었거나 화면에서 요청했을 때만, 10분마다 확인. --force: 무조건)
+//   node scripts/daily.mjs worker  계속 돌며 15초마다 붙여넣은 검사 결과·아플 때 메모를 AI로 정리 (launchd KeepAlive)
 //   node scripts/daily.mjs all
 // 설정: scripts/.env.local (git에 올라가지 않음) — 아래 ENV 항목 참고
 
@@ -29,6 +30,7 @@ const ENV = {
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY, // RLS 우회 — 이 맥미니에만 보관
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+  GEMINI_PARSE_MODEL: process.env.GEMINI_PARSE_MODEL || 'gemini-3.8-flash', // 붙여넣은 결과지 정리 (정확도 우선)
   DASH_USER_EMAIL: process.env.DASH_USER_EMAIL, // 비우면 dash_ 데이터의 주인을 자동으로 찾음
   MEAL_CONTEXT: process.env.MEAL_CONTEXT || '', // 인사이트에 반영할 내 상황 (선택)
 };
@@ -63,14 +65,14 @@ async function resolveUserId() {
   throw new Error(`대시보드 사용자를 정할 수 없음 (후보 ${ids.size}명) — DASH_USER_EMAIL 을 설정하세요`);
 }
 
-async function gemini(prompt, schema) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${ENV.GEMINI_MODEL}:generateContent`;
+async function gemini(prompt, schema, { model = ENV.GEMINI_MODEL, temperature = 0.2 } = {}) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': ENV.GEMINI_API_KEY },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: schema },
+      generationConfig: { temperature, responseMimeType: 'application/json', responseSchema: schema },
     }),
   });
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
@@ -404,91 +406,116 @@ async function runMarket(userId, onlyMissing) {
 }
 
 // ---------- 건강 기록 (Health log 앱 데이터) ----------
-// 검진 기록은 Health_record_manager 앱 테이블에서 읽기만 한다. '나'는 dash_profile.health_member_id,
-// 없으면 이 계정의 가족 중 기록이 가장 많은 사람 (화면과 같은 기준).
-async function healthContext(userId) {
-  const q = async (p) => {
-    const { data, error } = await p;
-    if (error) throw error;
-    return data;
-  };
+// 검진·증상·약 기록은 Health_record_manager 앱 테이블을 같이 쓴다 (가족 단위).
+// '나'(주간 리포트 기준)는 dash_profile.health_member_id, 없으면 가족 중 기록이 가장 많은 사람.
+const q = async (p) => {
+  const { data, error } = await p;
+  if (error) throw error;
+  return data;
+};
+
+async function familyMembers(userId) {
   const links = await q(db.from('account_families').select('family_id').eq('account_id', userId));
-  const famIds = links.map((l) => l.family_id);
-  if (!famIds.length) return null;
-  const members = await q(db.from('family_members').select('id, gender, birth_date').in('family_id', famIds));
+  if (!links.length) return [];
+  return q(db.from('family_members').select('id, name, gender, birth_date').in('family_id', links.map((l) => l.family_id)));
+}
+
+async function healthContext(userId, memberId = null) {
+  const members = await familyMembers(userId);
+  if (!members.length) return null;
   const records = await q(
     db.from('health_records').select('id, member_id, date, type, weight, bmi, sys, dia, fasting, created_at')
       .in('member_id', members.map((m) => m.id)).order('date'),
   );
-  const profile = await q(db.from('dash_profile').select('health_member_id').eq('user_id', userId).maybeSingle());
-  const count = (id) => records.filter((r) => r.member_id === id).length;
-  const member =
-    members.find((m) => m.id === profile?.health_member_id) ?? [...members].sort((a, b) => count(b.id) - count(a.id))[0];
-  if (!member) return null;
+  let member = members.find((m) => m.id === memberId);
+  if (!member) {
+    const profile = await q(db.from('dash_profile').select('health_member_id').eq('user_id', userId).maybeSingle());
+    const count = (id) => records.filter((r) => r.member_id === id).length;
+    member = members.find((m) => m.id === profile?.health_member_id) ?? [...members].sort((a, b) => count(b.id) - count(a.id))[0];
+  }
   const mine = records.filter((r) => r.member_id === member.id);
   const checkIds = mine.filter((r) => r.type === '검진결과').map((r) => r.id);
   const labs = checkIds.length
-    ? await q(db.from('lab_results').select('record_id, category, test_name, value, raw_value, unit, reference_range, is_abnormal').in('record_id', checkIds))
+    ? await q(db.from('lab_results').select('record_id, category, test_name, value, raw_value, unit, reference_range, is_abnormal, created_at').in('record_id', checkIds))
     : [];
-  const notes = await q(db.from('dash_health_notes').select('category, content, created_at').eq('user_id', userId).order('created_at'));
+  const notes = await q(db.from('dash_health_notes').select('category, content, created_at').eq('user_id', userId).eq('member_id', member.id).order('created_at'));
+  const episodes = await q(db.from('episodes').select('id, title, start_date, end_date, status, created_at').eq('member_id', member.id).order('start_date'));
+  const epIds = episodes.map((e) => e.id);
+  const meds = epIds.length ? await q(db.from('medication_logs').select('episode_id, medication_name, dosage, start_date, end_date, created_at').in('episode_id', epIds)) : [];
+  const symptoms = epIds.length ? await q(db.from('symptom_logs').select('episode_id, logged_at, symptoms, severity, created_at').in('episode_id', epIds)) : [];
   const birth = member.birth_date ? new Date(member.birth_date) : null;
   const now = new Date();
   const age = birth
     ? now.getFullYear() - birth.getFullYear() - (now < new Date(now.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0)
     : null;
   const gender = member.gender === 'male' ? '남성' : member.gender === 'female' ? '여성' : null;
-  // 날짜별 검진 (수치가 있는 것만, 오래된 순)
   const checkups = mine
     .filter((r) => labs.some((l) => l.record_id === r.id))
     .map((r) => ({ date: r.date.slice(0, 10), labs: labs.filter((l) => l.record_id === r.id) }));
   const latest = checkups.at(-1) ?? null;
-  return { member, age, gender, notes, checkups, latest, daily: mine.filter((r) => r.type !== '검진결과'), records: mine, labs };
+  return { member, age, gender, notes, checkups, latest, daily: mine.filter((r) => r.type !== '검진결과'), records: mine, labs, episodes, meds, symptoms };
 }
 
 const labLine = (l) =>
   `${l.test_name} ${l.value ?? l.raw_value ?? ''}${l.unit ? ` ${l.unit}` : ''}${l.reference_range ? ` (참고 ${l.reference_range})` : ''}${l.is_abnormal ? ' [이상]' : ''}`;
 
+/** 사람마다: 기록·메모·아픈 기록이 바뀌었거나 화면에서 요청했을 때만 다시 분석 */
 async function runCheckup(userId, force) {
-  const ctx = await healthContext(userId);
-  if (!ctx) return;
-  const { data: row, error } = await db.from('dash_checkup_insights').select('*').eq('user_id', userId).maybeSingle();
-  if (error) throw error;
-  // 데이터 지문: 기록·수치·메모 수와 마지막 변경 시각, 대상 사람
-  const latestAt = (arr, k) => arr.reduce((m, x) => (x[k] > m ? x[k] : m), '');
-  const stamp = [ctx.member.id, ctx.records.length, latestAt(ctx.records, 'created_at'), ctx.labs.length, ctx.notes.length, latestAt(ctx.notes, 'created_at')].join('|');
-  const requested = row?.requested_at && (!row.created_at || row.requested_at > row.created_at);
-  if (!force && row?.source_stamp === stamp && !requested) return; // 할 일 없음 (10분마다 조용히 확인)
-  log(`[checkup] 분석 시작 (${requested ? '화면에서 요청' : force ? '수동' : '기록 변경'}) 검진 ${ctx.checkups.length}회`);
+  const members = await familyMembers(userId);
+  const rows = await q(db.from('dash_checkup_insights').select('*').eq('user_id', userId));
+  for (const m of members) await checkupFor(userId, m.id, rows.find((r) => r.member_id === m.id), force);
+}
 
-  // 생활 기록 요약: 최근 4주 주간 리포트 숫자, 최근 체중
-  const { data: reports } = await db.from('dash_health_reports').select('week_start, stats').eq('user_id', userId).order('week_start', { ascending: false }).limit(4);
-  const { data: weights } = await db.from('dash_body_weights').select('weigh_date, weight_kg').eq('user_id', userId).order('weigh_date', { ascending: false }).limit(10);
+async function checkupFor(userId, memberId, row, force) {
+  const ctx = await healthContext(userId, memberId);
+  if (!ctx) return;
+  const hasData = ctx.checkups.length || ctx.notes.length || ctx.episodes.length || ctx.daily.length;
+  const latestAt = (arr, k = 'created_at') => arr.reduce((m, x) => (x[k] > m ? x[k] : m), '');
+  const stamp = [ctx.records.length, latestAt(ctx.records), ctx.labs.length, latestAt(ctx.labs), ctx.notes.length, latestAt(ctx.notes),
+    ctx.episodes.length, latestAt(ctx.episodes), ctx.meds.length, latestAt(ctx.meds), ctx.symptoms.length, latestAt(ctx.symptoms)].join('|');
+  const requested = row?.requested_at && (!row.created_at || row.requested_at > row.created_at);
+  if (!requested && !force && (!hasData || row?.source_stamp === stamp)) return; // 할 일 없음 (10분마다 조용히 확인)
+  log(`[checkup] ${ctx.member.name ?? ''} 분석 시작 (${requested ? '화면에서 요청' : force ? '수동' : '기록 변경'}) 검진 ${ctx.checkups.length}회, 아픈 기록 ${ctx.episodes.length}건`);
+
+  const isMe = (await healthContext(userId))?.member.id === memberId; // 식단·운동·체중 기록은 '나'의 것
+  const reports = isMe ? await q(db.from('dash_health_reports').select('week_start, stats').eq('user_id', userId).order('week_start', { ascending: false }).limit(4)) : [];
+  const weights = isMe ? await q(db.from('dash_body_weights').select('weigh_date, weight_kg').eq('user_id', userId).order('weigh_date', { ascending: false }).limit(10)) : [];
   const dailyLines = Object.values(Object.fromEntries(ctx.daily.filter((r) => r.weight || r.sys || r.fasting).map((r) => [r.date.slice(0, 10), r])))
     .slice(-12)
     .map((r) => `${r.date.slice(0, 10)}: ${[r.weight && `체중 ${r.weight}kg`, r.sys && `혈압 ${r.sys}/${r.dia}`, r.fasting && `공복혈당 ${r.fasting}`].filter(Boolean).join(', ')}`);
+  const episodeLines = ctx.episodes.slice(-8).map((e) => {
+    const s = ctx.symptoms.filter((x) => x.episode_id === e.id);
+    const md = ctx.meds.filter((x) => x.episode_id === e.id);
+    return `- ${e.title} (${e.start_date} ~ ${e.end_date ?? '진행 중'}): 증상 ${[...new Set(s.flatMap((x) => x.symptoms))].join(', ') || '-'}, 최고 강도 ${Math.max(0, ...s.map((x) => x.severity)) || '-'}/10, 약 ${md.map((x) => `${x.medication_name}(${x.start_date}~${x.end_date ?? ''})`).join(', ') || '-'}`;
+  });
+  const child = ctx.age != null && ctx.age < 19;
 
-  const prompt = `너는 건강검진 결과를 일반인에게 설명해 주는 가정의학과 상담가다. 한 사람의 검진 기록 추세를 보고 한국어로 인사이트를 써라.
+  const prompt = `너는 건강검진 결과를 일반인에게 설명해 주는 ${child ? '소아청소년과' : '가정의학과'} 상담가다. 한 사람의 건강 기록 추세를 보고 한국어로 인사이트를 써라.
 원칙:
 - 진단이나 약 처방은 하지 마라. 수치의 의미, 추세(좋아짐/나빠짐), 생활에서 할 수 있는 일, 의사에게 확인할 것을 말하라.
 - 검진 기관·연도마다 검사 이름이 다르다 (예: AST, AST (SGOT), AST(GOT)는 같은 검사). 같은 검사끼리 묶어 추세를 보라.
-- [이상]은 검진 기관이 표시한 것이다. 참고치가 없으면 일반적인 성인 기준으로 말하되 단정하지 마라.
-- 기록에 없는 것은 지어내지 마라.
+- [이상]은 기관이 표시했거나 참고치를 벗어난 것이다. 참고치가 없으면 ${child ? '그 나이 아이' : '일반적인 성인'} 기준으로 말하되 단정하지 마라.
+- 아픈 기록(증상·약)이 있으면 반복되는 증상이나 오래 가는 문제를 짚어라.
+- 기록에 없는 것은 지어내지 마라. 기록이 적으면 적은 대로 짧게 써라.
 
 이 사람: ${[ctx.gender, ctx.age != null && `만 ${ctx.age}세`].filter(Boolean).join(', ') || '나이·성별 모름'}
-${ctx.notes.length ? `본인이 적은 건강 메모:\n${ctx.notes.map((n) => `- [${n.category}] ${n.content}`).join('\n')}\n` : ''}
-검진 결과 (오래된 순):
+${ctx.notes.length ? `기본 정보(직접 적은 메모):\n${ctx.notes.map((n) => `- [${n.category}] ${n.content}`).join('\n')}\n` : ''}
+검진·검사 결과 (오래된 순):
 ${ctx.checkups.map((c) => `## ${c.date}\n${c.labs.map(labLine).join('\n')}`).join('\n\n') || '없음'}
+
+아팠던 기록:
+${episodeLines.join('\n') || '없음'}
 
 일상 기록 (Health log 앱):
 ${dailyLines.join('\n') || '없음'}
-대시보드 체중 기록: ${(weights ?? []).map((w) => `${w.weigh_date} ${w.weight_kg}kg`).join(', ') || '없음'}
-최근 주간 리포트 숫자: ${(reports ?? []).map((r) => `${r.week_start} 주: 하루 평균 ${r.stats.avg_kcal}kcal(기록 ${r.stats.meal_days}일), 운동 체크 ${r.stats.workout_done}/${r.stats.workout_possible}`).join(' / ') || '없음'}
+${isMe ? `대시보드 체중 기록: ${weights.map((w) => `${w.weigh_date} ${w.weight_kg}kg`).join(', ') || '없음'}
+최근 주간 리포트 숫자: ${reports.map((r) => `${r.week_start} 주: 하루 평균 ${r.stats.avg_kcal}kcal(기록 ${r.stats.meal_days}일), 운동 체크 ${r.stats.workout_done}/${r.stats.workout_possible}`).join(' / ') || '없음'}` : ''}
 
 출력:
 - headline: 지금 건강 상태와 추세를 한 문장으로
-- items: 주요 주제 4~7개 (예: 체중·복부비만, 혈압, 혈당, 콜레스테롤, 간기능, 신장기능, 빈혈). 각 topic(짧은 이름), status(good=양호 / watch=주의해서 지켜볼 것 / concern=관리나 진료 상담이 필요), text(최근 수치와 추세를 1~2문장)
-- lifestyle: 검진 결과와 최근 생활 기록(식단·운동·체중)을 연결한 2~3문장
-- recommendations: 생활에서 해볼 것 3~5개 (구체적으로)
+- items: 주요 주제 2~7개 (예: 체중·복부비만, 혈압, 혈당, 콜레스테롤, 간기능, 신장기능, 빈혈, 반복되는 증상${child ? ', 성장' : ''}). 각 topic(짧은 이름), status(good=양호 / watch=주의해서 지켜볼 것 / concern=관리나 진료 상담이 필요), text(최근 수치와 추세를 1~2문장)
+- lifestyle: 검진 결과와 생활·아팠던 기록을 연결한 2~3문장
+- recommendations: 생활에서 해볼 것 2~5개 (구체적으로)
 - ask_doctor: 다음 진료·검진 때 확인할 것 0~3개`;
 
   const insight = await gemini(prompt, {
@@ -510,11 +537,163 @@ ${dailyLines.join('\n') || '없음'}
     required: ['headline', 'items', 'lifestyle', 'recommendations', 'ask_doctor'],
   });
   const { error: e2 } = await db.from('dash_checkup_insights').upsert(
-    { user_id: userId, member_id: ctx.member.id, insight, source_stamp: stamp, created_at: new Date().toISOString() },
-    { onConflict: 'user_id' },
+    { user_id: userId, member_id: memberId, insight, source_stamp: stamp, created_at: new Date().toISOString() },
+    { onConflict: 'user_id,member_id' },
   );
   if (e2) throw e2;
   log(`[checkup] 저장: ${insight.headline}`);
+}
+
+// ---------- 붙여넣은 원문 AI 정리 (검사 결과 / 아플 때 기록) ----------
+// 화면에서 붙여넣은 원문(dash_health_imports, status=pending)을 정리해 draft로 돌려준다.
+// 저장은 화면에서 사람이 검토한 뒤에 한다. 이 맥미니에서 계속 돌며 15초마다 확인 (worker).
+
+/** 참고치 문자열에서 범위를 읽는다. 성별 참고치는 그 사람 성별로. 못 읽으면 null */
+function parseRange(ref, gender) {
+  if (!ref) return null;
+  let s = String(ref).replace(/,/g, '');
+  const sexed = s.match(/(?:남|M)\s*:?\s*([^/여F]+)[/\s]*(?:여|F)\s*:?\s*(.+)/i);
+  if (sexed) s = gender === 'female' ? sexed[2] : sexed[1];
+  const num = '(-?\\d+(?:\\.\\d+)?)';
+  let m;
+  if ((m = s.match(new RegExp(`${num}\\s*(?:~|-|–)\\s*${num}`)))) return { lo: +m[1], hi: +m[2] };
+  if ((m = s.match(new RegExp(`(?:<|≤|=<)\\s*${num}`))) || (m = s.match(new RegExp(`${num}\\s*(?:미만|이하)`)))) return { hi: +m[1] };
+  if ((m = s.match(new RegExp(`(?:>|≥|=>)\\s*${num}`))) || (m = s.match(new RegExp(`${num}\\s*(?:초과|이상)`)))) return { lo: +m[1] };
+  return null;
+}
+
+const CHECKUP_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    date: { type: 'STRING' },
+    institution: { type: 'STRING' },
+    findings: { type: 'STRING' },
+    results: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          category: { type: 'STRING' }, test_name: { type: 'STRING' }, raw_value: { type: 'STRING' }, value: { type: 'NUMBER' },
+          unit: { type: 'STRING' }, reference_range: { type: 'STRING' }, is_abnormal: { type: 'BOOLEAN' }, source_line: { type: 'STRING' },
+        },
+        required: ['test_name', 'raw_value', 'is_abnormal', 'source_line'],
+      },
+    },
+  },
+  required: ['date', 'results'],
+};
+
+async function parseCheckup(imp, member, today) {
+  const prompt = `아래는 PDF·결과지·문자에서 복사한 검진·검사 결과 원문이다. 줄바꿈과 열 순서가 깨져 있고, 한 줄에 여러 검사가 섞이거나 한 검사가 여러 줄로 나뉘어 있을 수 있다.
+모든 검사 항목을 빠짐없이, 지어내지 말고 추출하라.
+- 같은 검사가 두 번 나오면 (예: 보험코드와 함께 반복) 한 번만.
+- 혈압·시력처럼 '최고/최저', '좌/우'가 한 줄에 있으면 각각 별도 항목으로 (예: "수축기 혈압", "이완기 혈압").
+- test_name: 원문 이름을 기본으로 하되 한글·영문 병기가 있으면 그대로 (예: "AST(SGOT)").
+- category: 검사 분류 (예: 계측, 혈압, 혈액, 간기능, 신장기능, 지질, 당뇨, 갑상선, 소변, 영상, 기타).
+- raw_value: 결과를 원문 그대로 (예: "<0.05", "음성", "1+"). value: 숫자로 쓸 수 있을 때만.
+- is_abnormal: 원문에 H/L/경계/이상 표시가 있거나 참고치를 벗어나면 true. 성별 참고치는 ${member.gender === 'female' ? '여성' : '남성'} 기준.
+- source_line: 그 값을 읽은 원문 줄을 그대로 복사 (사람이 검토할 때 쓴다).
+- date: 검진·검사 날짜 YYYY-MM-DD (연도가 없으면 ${today.slice(0, 4)}년, 날짜가 전혀 없으면 빈 문자열).
+- institution: 검사 기관 이름 (없으면 빈 문자열).
+- findings: 종합소견·판독 소견·의사 코멘트 같은 서술형 내용을 원문에 가깝게 (없으면 빈 문자열).
+
+원문:
+${imp.raw_text}`;
+  const out = await gemini(prompt, CHECKUP_SCHEMA, { model: ENV.GEMINI_PARSE_MODEL, temperature: 0 });
+  // 안전장치: 참고치를 벗어났는데 표시가 없으면 이상으로 표시
+  for (const r of out.results) {
+    const range = parseRange(r.reference_range, member.gender);
+    const v = typeof r.value === 'number' ? r.value : parseFloat(r.raw_value);
+    if (range && Number.isFinite(v) && !r.is_abnormal && ((range.lo != null && v < range.lo) || (range.hi != null && v > range.hi))) {
+      r.is_abnormal = true;
+      r.auto_flag = true;
+    }
+  }
+  return out;
+}
+
+async function parseEpisode(imp, member, today) {
+  const episodes = await q(db.from('episodes').select('id, title, start_date, end_date, status').eq('member_id', member.id).order('start_date', { ascending: false }).limit(15));
+  const written = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(imp.created_at));
+  const prompt = `아래는 한 사람이 아플 때 적은 메모다. 증상 기록과 복용한 약을 날짜별로 정리하라. 지어내지 마라.
+- 이 메모를 쓴 날: ${written} (서울). '어제', '그저께', '지난주 월요일' 같은 표현은 이 날 기준으로 실제 날짜로 바꿔라.
+- 이 사람의 최근 아팠던 기록 (같은 일이면 episode.existing_id에 그 id, 새 일이면 빈 문자열):
+${episodes.map((e) => `  id=${e.id} | ${e.title} | ${e.start_date} ~ ${e.end_date ?? '진행 중'}`).join('\n') || '  없음'}
+- episode: title(짧게, 예: "목감기", "위염 재발"), start_date, end_date(나았다고 적혀 있으면, 아니면 빈 문자열), description(한 줄 요약).
+- symptoms: 시점별 기록. logged_at은 "YYYY-MM-DDTHH:mm" (시간이 없으면 09:00), symptoms는 짧은 증상 태그 배열 (예: ["인후통","발열 38.2"]),
+  severity는 1~10 (원문에 없으면 표현으로 추정: 약간=2~3, 꽤=5, 심함=7~8, 못 견딤=9~10), notes는 그 시점의 원문 요약.
+- medications: medication_name(제품명·성분, 용량 포함 가능), dosage(예: "1정 하루 3회"), start_date, end_date(끝났으면, 아니면 빈 문자열),
+  effectiveness 1~5 (적혀 있을 때만, 없으면 0), symptom_effect(어떤 증상에 효과였는지, 없으면 빈 문자열).
+
+메모:
+${imp.raw_text}`;
+  return gemini(prompt, {
+    type: 'OBJECT',
+    properties: {
+      episode: {
+        type: 'OBJECT',
+        properties: { existing_id: { type: 'STRING' }, title: { type: 'STRING' }, start_date: { type: 'STRING' }, end_date: { type: 'STRING' }, description: { type: 'STRING' } },
+        required: ['existing_id', 'title', 'start_date', 'end_date', 'description'],
+      },
+      symptoms: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: { logged_at: { type: 'STRING' }, symptoms: { type: 'ARRAY', items: { type: 'STRING' } }, severity: { type: 'INTEGER' }, notes: { type: 'STRING' } },
+          required: ['logged_at', 'symptoms', 'severity', 'notes'],
+        },
+      },
+      medications: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            medication_name: { type: 'STRING' }, dosage: { type: 'STRING' }, start_date: { type: 'STRING' }, end_date: { type: 'STRING' },
+            effectiveness: { type: 'INTEGER' }, symptom_effect: { type: 'STRING' },
+          },
+          required: ['medication_name', 'dosage', 'start_date', 'end_date', 'effectiveness', 'symptom_effect'],
+        },
+      },
+    },
+    required: ['episode', 'symptoms', 'medications'],
+  }, { model: ENV.GEMINI_PARSE_MODEL, temperature: 0 });
+}
+
+async function processImports() {
+  // 중간에 멈춘 것(5분 넘게 parsing)은 다시 대기열로
+  await db.from('dash_health_imports').update({ status: 'pending' }).eq('status', 'parsing').lt('created_at', new Date(Date.now() - 5 * 60000).toISOString());
+  const pending = await q(db.from('dash_health_imports').select('*').eq('status', 'pending').order('created_at').limit(5));
+  for (const imp of pending) {
+    // 다른 실행과 겹치지 않게: pending → parsing 으로 바뀐 경우에만 진행
+    const claimed = await q(db.from('dash_health_imports').update({ status: 'parsing' }).eq('id', imp.id).eq('status', 'pending').select('id'));
+    if (!claimed.length) continue;
+    const t0 = Date.now();
+    try {
+      const members = await familyMembers(imp.user_id);
+      const member = members.find((m) => m.id === imp.member_id);
+      if (!member) throw new Error('가족 구성원을 찾을 수 없습니다');
+      const today = todaySeoul();
+      const draft = imp.kind === 'checkup' ? await parseCheckup(imp, member, today) : await parseEpisode(imp, member, today);
+      await q(db.from('dash_health_imports').update({ status: 'ready', draft, model: ENV.GEMINI_PARSE_MODEL, error: null, parsed_at: new Date().toISOString() }).eq('id', imp.id));
+      log(`[import] ${imp.kind} 정리 완료 (${((Date.now() - t0) / 1000).toFixed(0)}초, ${imp.kind === 'checkup' ? `${draft.results.length}항목` : `증상 ${draft.symptoms.length}·약 ${draft.medications.length}`})`);
+    } catch (e) {
+      await db.from('dash_health_imports').update({ status: 'failed', error: String(e.message).slice(0, 500) }).eq('id', imp.id);
+      log(`[import] 실패: ${e.message}`);
+    }
+  }
+}
+
+/** 계속 돌면서 15초마다 붙여넣기 대기열 확인 (launchd KeepAlive) */
+async function runWorker() {
+  log(`[worker] 시작 (모델 ${ENV.GEMINI_PARSE_MODEL})`);
+  for (;;) {
+    try {
+      await processImports();
+    } catch (e) {
+      log(`[worker] 오류: ${e.message}`);
+    }
+    await sleep(15000);
+  }
 }
 
 // ---------- 주간 건강 리포트 ----------
@@ -671,6 +850,7 @@ try {
     if ((cmd === 'meals' || cmd === 'all') && !DRY) await runMeals(userId);
     if (cmd === 'news' || cmd === 'all') await runNews(userId);
     if ((cmd === 'market' || cmd === 'all') && !DRY) await runMarket(userId, process.argv.includes('--missing'));
+    if (cmd === 'worker' && !DRY) await runWorker();
     if (cmd === 'checkup' && !DRY) await runCheckup(userId, process.argv.includes('--force'));
     if (cmd === 'health' && !DRY) {
       const i = process.argv.indexOf('--week');

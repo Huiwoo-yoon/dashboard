@@ -9,6 +9,7 @@ import Market from './pages/Market';
 import Health from './pages/Health';
 import Checkup from './pages/Checkup';
 import Cars from './pages/Cars';
+import Illness from './pages/Illness';
 
 export interface SubRoute {
   path: string;
@@ -51,6 +52,7 @@ export const routes: AppRoute[] = [
     requiresAuth: true,
     children: [
       { path: '/manage/checkup', label: '건강 기록', component: Checkup },
+      { path: '/manage/illness', label: '아플 때', component: Illness },
       { path: '/manage/weekly', label: '주간 리포트', component: Health },
       { path: '/manage/car', label: '차량', component: Cars },
     ],

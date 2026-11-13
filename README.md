@@ -21,6 +21,7 @@ GitHub Pages에 올리는 개인 대시보드. 홈(앱 서랍)은 누구나 볼 
    - 이전 버전 스키마를 이미 실행했다면 `supabase/002_update.sql`만 추가로 실행합니다 (운동 시간대·장소·메모, 식단 영양 분석, 인사이트, 소식 테이블). 여러 번 실행해도 안전합니다.
    - 경제 동향 탭: `supabase/003_market.sql` 실행 (관심 종목·시세 테이블 + 기본 9종목).
    - 건강 탭: `supabase/004_health.sql` 실행 (키·체중 기록, 주간 건강 리포트 테이블).
+   - 붙여넣기·가족별: `supabase/006_health_import.sql` 실행 (가족별 기본 정보·인사이트, 붙여넣은 원문 대기열).
    - 관리 탭: `supabase/005_manage.sql` 실행 (건강 메모·검진 인사이트, 차량·점검 항목·정비 이력). 건강검진 기록은 같은 프로젝트의 Health log 앱(Health_record_manager) 테이블을 그 앱의 RLS로 **읽기만** 합니다.
    - (선택) 운동 루틴 초기값: `supabase/seed_routine.local.sql`의 이메일을 바꿔 실행. 건강 정보가 들어 있어 git에서 제외된 파일입니다.
 3. **내 계정 만들기** — *Authentication → Users → Add user → Create new user*
@@ -87,7 +88,8 @@ npm run build
 - **매주 금요일 07:00 주간 소식**(`news`): 지난 금~목 기사를 경제·문화·세계·과학·의학·정신의학·IT·생활 분야별로 Gemini가 주요 뉴스 5~10개(한 줄 설명 포함)와 분야별 한 줄 요약으로 정리해 `dash_news_digests`에 저장. 정신의학은 국내 2개 + 해외(Medscape Psychiatry 등) 8개 정도로 고릅니다. 소식 탭은 일주일에 한 번, 금요일에만 바뀝니다.
 - **경제 동향**(`market`): Yahoo Finance 차트 데이터(키 불필요)로 관심 종목의 직전 거래일 시세와 기간별(일·주·월·연·5년·최대) 차트를 `dash_market_quotes`에 저장. 매일 07:30(미국 장 마감 후)·16:30(국내 장 마감 후) 전체 갱신, 10분마다 새로 추가한 종목만 채움(`market --missing`). 종목은 화면의 **편집**에서 Yahoo 티커로 추가·삭제합니다 (예: `AAPL`, `000660.KS`, `GC=F`, `BTC-KRW`).
 - **매주 월요일 07:15 주간 건강 리포트**(`health`): 지난 월~일 식단·운동 체크·체중을 모아 평균 열량·탄단지 비율·운동 달성률·BMI는 스크립트가 직접 계산하고, Gemini가 식단 구성·운동·체중 평가와 잘한 점·조절할 부분·다음 주 목표를 써서 `dash_health_reports`에 저장. 시작 전에 아직 분석 안 된 식단을 먼저 분석합니다. 특정 주를 다시 만들려면 `node scripts/daily.mjs health --week 2026-11-09`(그 주 월요일).
-- **검진 인사이트**(`checkup`): 10분마다 확인해서 Health log 앱의 검진 기록이나 내 건강 메모가 바뀌었거나 화면에서 '다시 분석'을 눌렀을 때만 Gemini로 분석해 `dash_checkup_insights`에 저장. 보내는 것은 날짜·검사명·수치·참고치·나이·성별·메모이고 이름·기관명은 보내지 않습니다. 주간 리포트도 나이·성별·메모·최근 검진 이상 항목을 참고합니다. 지금 바로: `node scripts/daily.mjs checkup --force`
+- **붙여넣기 AI 정리**(`worker`, 계속 실행): 화면에 붙여넣은 검사 결과지·아플 때 메모를 15초마다 확인해 `GEMINI_PARSE_MODEL`(기본 `gemini-3.8-flash` — 정렬 안 된 결과지에서 이상 표시까지 정확했던 모델)로 정리합니다. 원문 줄을 함께 돌려줘 화면에서 비교·수정한 뒤 저장하면 Health log 앱 테이블(`health_records`·`lab_results`, `episodes`·`symptom_logs`·`medication_logs`)에 들어갑니다. 참고치를 벗어났는데 표시가 없으면 코드가 한 번 더 이상으로 표시합니다.
+- **검진 인사이트**(`checkup`): 가족 구성원마다, 10분마다 확인해서 Health log 앱의 검진·아픈 기록이나 기본 정보가 바뀌었거나 화면에서 '다시 분석'을 눌렀을 때만 Gemini로 분석해 `dash_checkup_insights`에 저장. 보내는 것은 날짜·검사명·수치·참고치·나이·성별·메모이고 이름·기관명은 보내지 않습니다. 주간 리포트도 나이·성별·메모·최근 검진 이상 항목을 참고합니다. 지금 바로: `node scripts/daily.mjs checkup --force`
 - **매일 23:00 식단**(`meals`): 아직 분석 안 된 식단(`analyzed_at` 비어 있음, 최대 14일치)을 Gemini로 보내 음식 이름·kcal·탄단지를 채우고 하루 인사이트를 `dash_meal_insights`에 저장. 식단 내용을 고치면 다시 분석됩니다. 직접 입력한 kcal이 AI 추정치보다 우선합니다.
 
 설정:
@@ -119,7 +121,7 @@ node scripts/daily.mjs collect --dry-run
 ```
 
 - 시간은 `install-launchd.sh` 안의 숫자를 고친 뒤 다시 실행하면 바뀝니다.
-- 로그: `~/Library/Logs/dashboard/collect.log`, `news.log`, `meals.log`, `health.log`, `checkup.log`, `market.log`
+- 로그: `~/Library/Logs/dashboard/collect.log`, `news.log`, `meals.log`, `health.log`, `checkup.log`, `worker.log`, `market.log`
 - 맥미니가 잠자기 중이었다면 깨어날 때 놓친 작업이 한 번 실행됩니다. 전원이 꺼져 있었다면 건너뜁니다(식단은 다음 날 밀린 것까지 분석). 로그아웃 상태에서는 실행되지 않습니다.
 - 지금 바로 한 번 돌려 보기: `launchctl kickstart gui/$(id -u)/com.dashboard.weekly-news` (또는 `com.dashboard.daily-meals`, `com.dashboard.weekly-health`)
 
@@ -134,7 +136,7 @@ src/
   lib/date.ts        Asia/Seoul 기준 날짜 유틸
   api/               데이터 접근 함수 (pages는 여기만 호출)
   components/        Layout(사이드바/탭바), 인증, 공통 UI
-  pages/             Home, Todo, Workout, Meals (Daily) · Checkup, Health, Cars (관리) · News, Market, Login
+  pages/             Home, Todo, Workout, Meals (Daily) · Checkup, Illness, Health, Cars (관리) · News, Market, Login
   data/carTemplate.ts 새 차 기본 점검 항목 (휘발유 승용차 기준)
   data/apps.json     앱 서랍 목록
 supabase/schema.sql  테이블 + RLS (002 포함 전체)

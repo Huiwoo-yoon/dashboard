@@ -2,6 +2,7 @@
 # 맥미니에 실행 일정 등록 (launchd, 로그인 사용자 기준)
 #   뉴스 제목 모으기: 매일 06:30 (화면 표시 없음) / 주간 소식: 매주 금요일 07:00 / 식단 분석: 매일 23:00
 #   주간 건강 리포트: 매주 월요일 07:15 (지난 월~일) / 검진 인사이트: 10분마다 변경·요청 확인
+#   붙여넣기 AI 정리(worker): 계속 실행, 15초마다 확인
 #   경제 동향: 매일 07:30(미국 장 마감 후)·16:30(국내 장 마감 후) 전체 갱신 + 10분마다 새로 추가한 종목만 채우기
 #   시간은 맨 아래 숫자만 바꾸고 다시 실행
 # 잠자기 중이었다면 깨어난 직후 한 번 실행된다. 해제: scripts/uninstall-launchd.sh
@@ -72,3 +73,25 @@ PLIST
 # 10분마다 조용히 확인 (할 일이 없으면 바로 끝남)
 make_every com.dashboard.market-new market 600 market --missing   # 새로 추가한 종목만
 make_every com.dashboard.checkup checkup 600 checkup              # 검진 기록·메모 변경, 화면의 '다시 분석'
+
+# 계속 도는 작업: 붙여넣은 검사 결과·아플 때 메모를 15초마다 확인해 AI로 정리 (죽으면 launchd가 다시 띄움)
+cat > "$AGENTS/com.dashboard.worker.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.dashboard.worker</string>
+  <key>ProgramArguments</key>
+  <array><string>$NODE</string><string>$DIR/scripts/daily.mjs</string><string>worker</string></array>
+  <key>WorkingDirectory</key><string>$DIR</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>$LOGDIR/worker.log</string>
+  <key>StandardErrorPath</key><string>$LOGDIR/worker.log</string>
+</dict>
+</plist>
+PLIST
+launchctl bootout "gui/$(id -u)/com.dashboard.worker" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$AGENTS/com.dashboard.worker.plist"
+echo "등록: com.dashboard.worker (붙여넣기 AI 정리, 계속 실행) → 로그 $LOGDIR/worker.log"

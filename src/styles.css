@@ -567,3 +567,53 @@ a.news-item:hover { background: var(--surface-2); }
 .lab-table td.abn { color: var(--danger); font-weight: 700; }
 .lab-table.full td { text-align: left; white-space: normal; }
 .cycle-row { flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 10px; }
+
+/* 관리: 가족 전환 · 붙여넣기 검토 · 아플 때 */
+.member-switch { margin: -4px 0 16px; width: fit-content; max-width: 100%; overflow-x: auto; }
+.member-switch button { white-space: nowrap; }
+.import-inbox { display: grid; gap: 10px; }
+.import-inbox textarea { width: 100%; min-height: 110px; resize: vertical; font: inherit; font-size: 0.88rem; }
+.import-list { list-style: none; margin: 4px 0 0; padding: 0; border-top: 1px solid var(--border); }
+.import-list li { border-bottom: 1px solid var(--border); }
+.import-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 0; border: none; background: none; color: inherit; font: inherit; font-size: 0.86rem; text-align: left; cursor: pointer; }
+.import-head:disabled { cursor: default; }
+.import-head .ellipsis { flex: 1; min-width: 0; }
+.link-btn.small { font-size: 0.78rem; margin: 0 0 8px; }
+.review { border: 1px solid var(--border-strong); border-radius: 10px; padding: 14px; display: grid; gap: 12px; background: var(--surface); }
+.review-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.raw-text { margin: 0; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 0.78rem; line-height: 1.5; background: var(--surface-2); border-radius: 8px; padding: 10px; }
+.review-meta { display: flex; flex-wrap: wrap; gap: 10px; }
+.review-meta label { display: grid; gap: 4px; font-size: 0.78rem; color: var(--text-2); flex: 1 1 140px; }
+.review textarea { width: 100%; font: inherit; font-size: 0.86rem; resize: vertical; }
+.lab-edit { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.lab-edit > li { border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+.lab-edit > li.abn { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.lab-edit input, .lab-edit select { min-width: 0; font-size: 0.86rem; }
+.lab-edit-grid { display: grid; grid-template-columns: 1fr 90px 70px; gap: 6px; align-items: center; }
+.lab-edit-grid .name { grid-column: 1 / -1; font-weight: 600; }
+.lab-edit-grid .ref { grid-column: span 1; }
+.lab-edit-grid .abn-check { display: flex; align-items: center; gap: 4px; font-size: 0.8rem; white-space: nowrap; }
+.lab-edit-grid .abn-check input { width: auto; }
+@media (min-width: 700px) {
+  .lab-edit-grid { grid-template-columns: 1.6fr 90px 80px 1fr 1.2fr auto auto; }
+  .lab-edit-grid .name { grid-column: auto; }
+}
+.source-line { margin: 6px 0 0; font-size: 0.74rem; color: var(--muted); word-break: break-all; }
+.source-line em { color: var(--danger); font-style: normal; }
+.sym-edit-grid { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sym-edit-grid .wide { flex: 1 1 200px; }
+.sym-edit-grid label { display: flex; align-items: center; gap: 4px; font-size: 0.8rem; color: var(--text-2); }
+.sym-edit-grid .sev input { width: 56px; }
+.review-actions { border-top: 1px solid var(--border); padding-top: 12px; }
+.episode-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.episode-item > span:first-child { flex: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 0.8rem; border: 1px solid var(--border); border-radius: 14px; padding: 3px 10px; color: var(--text-2); }
+.chip b { color: var(--text); margin-left: 2px; }
+.sev-pill { font-size: 0.72rem; font-weight: 700; border-radius: 4px; padding: 1px 6px; background: var(--surface-2); margin-left: 4px; }
+.inline-add { padding: 12px 20px 16px; border-top: 1px solid var(--border); }
+.sev-range { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; white-space: nowrap; }
+.sev-range input { width: 110px; }
+.med-bar { fill: color-mix(in srgb, var(--ink) 22%, var(--surface)); stroke: color-mix(in srgb, var(--ink) 45%, var(--surface)); }
+.med-bar.ongoing { stroke-dasharray: 4 3; }
+.med-label { fill: var(--text); font-size: 11px; pointer-events: none; }

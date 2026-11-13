@@ -3,19 +3,19 @@ import {
   addNote,
   deleteNote,
   getInsight,
-  getMyMemberId,
   listLabs,
-  listMembers,
   listNotes,
   listRecords,
   requestInsight,
-  setMyMemberId,
   type CheckupInsight,
   type HealthNote,
   type HealthRecord,
   type LabResult,
-  type Member,
 } from '../api/checkup';
+import { ageOf, useViewedMember } from '../lib/member';
+import { MemberSwitch } from '../components/MemberSwitch';
+import { ImportInbox } from '../components/ImportInbox';
+import { CheckupReview } from '../components/CheckupReview';
 import { PageHeader, ErrorBanner, EmptyState, Panel, errMsg } from '../components/ui';
 import { Icon } from '../components/Icon';
 
@@ -41,48 +41,52 @@ const KEY_TESTS: { label: string; names: string[] }[] = [
   { label: '요산', names: ['Uric acid'] },
 ];
 
-const NOTE_CATEGORIES = ['복용약', '알레르기', '질환·병력', '가족력', '목표', '기타'];
+const NOTE_CATEGORIES = ['상시 복용약', '알레르기', '질환·병력', '수술·입원', '가족력', '목표', '기타'];
 const STATUS = { good: '양호', watch: '주의', concern: '관심 필요' } as const;
 
 const day = (d: string) => d.slice(0, 10);
 const shortDate = (d: string) => `${d.slice(2, 4)}.${d.slice(5, 7)}.${d.slice(8, 10)}`;
 const fmtVal = (l: LabResult) => (l.value != null ? String(l.value) : l.raw_value ?? '');
-const ageOf = (birth: string | null) => {
-  if (!birth) return null;
-  const b = new Date(birth);
-  const n = new Date();
-  return n.getFullYear() - b.getFullYear() - (n < new Date(n.getFullYear(), b.getMonth(), b.getDate()) ? 1 : 0);
-};
 const stamp = (iso: string) =>
   new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
 
 export default function Checkup() {
-  const [members, setMembers] = useState<Member[]>([]);
+  const { members, memberId, setMemberId, member, loading: mLoading, error: mError } = useViewedMember();
   const [records, setRecords] = useState<HealthRecord[]>([]);
   const [labs, setLabs] = useState<LabResult[]>([]);
-  const [memberId, setMemberId] = useState<string | null>(null);
   const [notes, setNotes] = useState<HealthNote[]>([]);
   const [insight, setInsight] = useState<CheckupInsight | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [noteCat, setNoteCat] = useState(NOTE_CATEGORIES[0]);
   const [noteText, setNoteText] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [rLoading, setRLoading] = useState(true);
+  const [reload, setReload] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const loading = mLoading || rLoading;
 
   useEffect(() => {
-    (async () => {
-      const [m, r, saved, n, ins] = await Promise.all([listMembers(), listRecords(), getMyMemberId(), listNotes(), getInsight()]);
-      setMembers(m);
-      setRecords(r);
-      setNotes(n);
-      setInsight(ins);
-      // 저장한 사람이 없으면 기록이 가장 많은 사람 (맥미니 분석도 같은 기준)
-      const busiest = [...m].sort((a, b) => r.filter((x) => x.member_id === b.id).length - r.filter((x) => x.member_id === a.id).length)[0];
-      setMemberId(saved && m.some((x) => x.id === saved) ? saved : busiest?.id ?? null);
-    })()
+    if (mError) setError(errMsg(mError));
+  }, [mError]);
+
+  useEffect(() => {
+    listRecords()
+      .then(setRecords)
       .catch((e) => setError(errMsg(e)))
-      .finally(() => setLoading(false));
-  }, []);
+      .finally(() => setRLoading(false));
+  }, [reload]);
+
+  useEffect(() => {
+    if (!memberId) return;
+    setNotes([]);
+    setInsight(null);
+    setDetailId(null);
+    Promise.all([listNotes(memberId), getInsight(memberId)])
+      .then(([n, ins]) => {
+        setNotes(n);
+        setInsight(ins);
+      })
+      .catch((e) => setError(errMsg(e)));
+  }, [memberId]);
 
   const mine = useMemo(() => records.filter((r) => r.member_id === memberId), [records, memberId]);
 
@@ -112,25 +116,15 @@ export default function Checkup() {
     Object.fromEntries(mine.filter((r) => r.type !== '검진결과' && (r.weight || r.sys || r.fasting)).map((r) => [day(r.date), r])),
   ).sort((a, b) => b.date.localeCompare(a.date));
 
-  const member = members.find((m) => m.id === memberId);
   const age = ageOf(member?.birth_date ?? null);
   const pending = !!insight?.requested_at && (!insight.created_at || insight.requested_at > insight.created_at);
-  const ins = insight?.member_id === memberId ? insight?.insight : null;
-
-  async function onMember(id: string) {
-    setMemberId(id);
-    setDetailId(null);
-    try {
-      await setMyMemberId(id);
-    } catch (e) {
-      setError(errMsg(e));
-    }
-  }
+  const ins = insight?.insight ?? null;
 
   async function onRequest() {
+    if (!memberId) return;
     try {
-      const requested_at = await requestInsight();
-      setInsight((cur) => ({ member_id: cur?.member_id ?? null, insight: cur?.insight ?? null, created_at: cur?.created_at ?? null, requested_at }));
+      const requested_at = await requestInsight(memberId);
+      setInsight((cur) => ({ member_id: memberId, insight: cur?.insight ?? null, created_at: cur?.created_at ?? null, requested_at }));
     } catch (e) {
       setError(errMsg(e));
     }
@@ -138,9 +132,9 @@ export default function Checkup() {
 
   async function onAddNote(e: FormEvent) {
     e.preventDefault();
-    if (!noteText.trim()) return;
+    if (!noteText.trim() || !memberId) return;
     try {
-      const n = await addNote(noteCat, noteText.trim());
+      const n = await addNote(memberId, noteCat, noteText.trim());
       setNotes((l) => [...l, n]);
       setNoteText('');
     } catch (err) {
@@ -163,8 +157,9 @@ export default function Checkup() {
       <PageHeader
         eyebrow="Health Record"
         title="건강 기록"
-        subtitle="Health log 앱의 검진 기록을 모아 보고, 내 건강 메모와 함께 AI 인사이트를 받습니다"
+        subtitle="가족별 검진·검사 결과와 기본 정보를 모아 보고 AI 인사이트를 받습니다. Health log 앱과 같은 기록을 씁니다"
       />
+      <MemberSwitch members={members} value={memberId} onChange={setMemberId} />
       <ErrorBanner error={error} onClose={() => setError(null)} />
 
       {loading ? (
@@ -180,28 +175,16 @@ export default function Checkup() {
         <div className="day-layout">
           <div className="day-side">
             <Panel
-              title={member?.name ?? '나'}
+              title={`${member?.name ?? ''} 기본 정보`}
               subtitle={[member?.gender === 'male' ? '남성' : member?.gender === 'female' ? '여성' : null, age != null ? `만 ${age}세` : null, `검진 ${checkups.length}회`].filter(Boolean).join(' · ')}
             >
-              {members.length > 1 && (
-                <label className="field-label">
-                  누구의 기록을 볼까요
-                  <select value={memberId ?? ''} onChange={(e) => onMember(e.target.value)}>
-                    {members.map((m) => (
-                      <option key={m.id} value={m.id}>{m.name ?? '이름 없음'}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </Panel>
-
-            <Panel title="내 건강 메모" subtitle="AI 인사이트와 주간 리포트에 참고됩니다">
+              <p className="panel-note" style={{ marginTop: 0, marginBottom: 10 }}>상시 복용약·알레르기·병력 등을 적어 두면 AI 인사이트에 참고됩니다.</p>
               <form className="add-form" onSubmit={onAddNote}>
                 <select value={noteCat} onChange={(e) => setNoteCat(e.target.value)}>
                   {NOTE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
                 </select>
                 <div className="row">
-                  <input placeholder="예: 비타민D 1000IU 매일 / 체지방 줄이기" value={noteText} onChange={(e) => setNoteText(e.target.value)} maxLength={1000} />
+                  <input placeholder="예: 비타민D 1000IU 매일 / 페니실린 알레르기" value={noteText} onChange={(e) => setNoteText(e.target.value)} maxLength={1000} />
                   <button className="btn primary" disabled={!noteText.trim()} aria-label="메모 추가"><Icon name="plus" size={18} /></button>
                 </div>
               </form>
@@ -237,6 +220,26 @@ export default function Checkup() {
           </div>
 
           <div>
+            <Panel title="검사 결과 붙여넣기" subtitle={`${member?.name ?? ''}의 검진표·혈액검사·판독지 등을 PDF에서 복사해 그대로 붙여넣으세요`}>
+              <ImportInbox
+                memberId={memberId!}
+                kind="checkup"
+                placeholder="정렬이 깨져 있어도 괜찮습니다. 여러 쪽을 한 번에 붙여넣어도 됩니다."
+                hint="맥미니의 AI(gemini-3.8-flash)가 항목별로 정리하면, 원문 줄과 비교하며 고친 뒤 저장합니다."
+                onError={setError}
+                renderReview={(imp, done) => (
+                  <CheckupReview
+                    imp={imp}
+                    onError={setError}
+                    onDone={() => {
+                      done();
+                      setReload((n) => n + 1);
+                    }}
+                  />
+                )}
+              />
+            </Panel>
+
             <Panel
               title="AI 인사이트"
               subtitle={insight?.created_at ? `${stamp(insight.created_at)} 분석 · 참고용이며 진단이 아닙니다` : '참고용이며 진단이 아닙니다'}

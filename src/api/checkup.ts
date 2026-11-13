@@ -40,7 +40,7 @@ export interface HealthNote {
 }
 
 export interface CheckupInsight {
-  member_id: string | null;
+  member_id: string;
   insight: {
     headline: string;
     items: { topic: string; status: 'good' | 'watch' | 'concern'; text: string }[];
@@ -85,29 +85,25 @@ export async function getMyMemberId(): Promise<string | null> {
   return data?.health_member_id ?? null;
 }
 
-export async function setMyMemberId(health_member_id: string): Promise<void> {
-  ok(await supabase.from('dash_profile').upsert({ health_member_id, updated_at: new Date().toISOString() }, { onConflict: 'user_id' }));
+export async function listNotes(member_id: string): Promise<HealthNote[]> {
+  return ok(await supabase.from('dash_health_notes').select('id, category, content, created_at').eq('member_id', member_id).order('created_at')) ?? [];
 }
 
-export async function listNotes(): Promise<HealthNote[]> {
-  return ok(await supabase.from('dash_health_notes').select('id, category, content, created_at').order('created_at')) ?? [];
-}
-
-export async function addNote(category: string, content: string): Promise<HealthNote> {
-  return ok(await supabase.from('dash_health_notes').insert({ category, content }).select('id, category, content, created_at').single());
+export async function addNote(member_id: string, category: string, content: string): Promise<HealthNote> {
+  return ok(await supabase.from('dash_health_notes').insert({ member_id, category, content }).select('id, category, content, created_at').single());
 }
 
 export async function deleteNote(id: string): Promise<void> {
   ok(await supabase.from('dash_health_notes').delete().eq('id', id));
 }
 
-export async function getInsight(): Promise<CheckupInsight | null> {
-  return ok(await supabase.from('dash_checkup_insights').select('member_id, insight, requested_at, created_at').maybeSingle());
+export async function getInsight(member_id: string): Promise<CheckupInsight | null> {
+  return ok(await supabase.from('dash_checkup_insights').select('member_id, insight, requested_at, created_at').eq('member_id', member_id).maybeSingle());
 }
 
 /** 맥미니가 10분 안에 다시 분석한다 */
-export async function requestInsight(): Promise<string> {
+export async function requestInsight(member_id: string): Promise<string> {
   const requested_at = new Date().toISOString();
-  ok(await supabase.from('dash_checkup_insights').upsert({ requested_at }, { onConflict: 'user_id' }));
+  ok(await supabase.from('dash_checkup_insights').upsert({ member_id, requested_at }, { onConflict: 'user_id,member_id' }));
   return requested_at;
 }
