@@ -21,6 +21,7 @@ const PATHS = {
   news: 'M4 5h13v14H6a2 2 0 0 1-2-2zM17 9h3v8a2 2 0 0 1-2 2M8 9h5M8 13h5M8 17h3',
   edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
   trend: 'M3 17l6-6 4 4 8-8M15 7h6v6',
+  heart: 'M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z',
 } as const;
 
 export type IconName = keyof typeof PATHS;

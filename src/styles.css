@@ -516,3 +516,15 @@ a.news-item:hover { background: var(--surface-2); }
 .chart-tip .v { font-weight: 800; font-variant-numeric: tabular-nums; }
 .chart-tip .t { font-size: 0.75rem; color: var(--muted); }
 .chart-empty { height: 280px; display: grid; place-items: center; }
+
+/* 주간 건강 */
+.link-btn { border: none; background: none; padding: 0 2px; color: var(--text-2); font: inherit; text-decoration: underline; cursor: pointer; }
+.weight-now { margin: 14px 0 4px; font-size: 0.92rem; font-variant-numeric: tabular-nums; }
+.weight-list { margin-top: 8px; border-top: 1px solid var(--border); }
+.weight-list .list-item { padding-left: 0; padding-right: 0; }
+.bullets { margin: 0; padding-left: 1.1em; display: grid; gap: 8px; font-size: 0.9rem; line-height: 1.6; color: var(--text-2); }
+.workout-counts { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; font-size: 0.86rem; }
+.workout-counts li { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.workout-counts .dots { display: inline-flex; gap: 4px; flex-shrink: 0; }
+.workout-counts .dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--track); }
+.workout-counts .dots i.on { background: var(--ink); }

@@ -4,6 +4,7 @@
 //   node scripts/daily.mjs collect 뉴스 제목만 로컬에 모아 두기 (매일, 화면 표시 없음)
 //   node scripts/daily.mjs news    지난 금~목 주간 소식 정리 (매주 금요일)
 //   node scripts/daily.mjs market  경제 동향: 관심 종목 시세·차트 갱신 (--missing: 새로 추가된 종목만)
+//   node scripts/daily.mjs health  주간 건강 리포트: 지난 월~일 식단·운동·체중 평가 (매주 월요일, --week 2026-11-09 로 특정 주)
 //   node scripts/daily.mjs all
 // 설정: scripts/.env.local (git에 올라가지 않음) — 아래 ENV 항목 참고
 
@@ -401,6 +402,149 @@ async function runMarket(userId, onlyMissing) {
   if (stale.length) await db.from('dash_market_quotes').delete().eq('user_id', userId).in('symbol', stale);
 }
 
+// ---------- 주간 건강 리포트 ----------
+// 지난 월~일 식단·운동·체중을 모아 숫자는 직접 계산하고, 평가와 조언은 Gemini가 쓴다.
+async function runHealth(userId, weekArg) {
+  const addD = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
+  const today = todaySeoul();
+  const wd = new Date(`${today}T00:00:00Z`).getUTCDay(); // 0=일 … 1=월
+  const thisMonday = addD(today, -((wd + 6) % 7));
+  const weekStart = weekArg || addD(thisMonday, -7); // 기본: 가장 최근에 끝난 월~일
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart) || new Date(`${weekStart}T00:00:00Z`).getUTCDay() !== 1) {
+    throw new Error(`--week 는 월요일 날짜여야 합니다 (예: 2026-11-09)`);
+  }
+  const weekEnd = addD(weekStart, 6);
+  const days = Array.from({ length: 7 }, (_, i) => addD(weekStart, i));
+  const elapsed = days.filter((d) => d <= today).length; // 진행 중인 주를 --week 로 만들 때 아직 안 온 날은 빼고 본다
+
+  await runMeals(userId); // 일요일 밤 늦게 적은 식단까지 분석해 두기
+
+  const q = async (p) => {
+    const { data, error } = await p;
+    if (error) throw error;
+    return data;
+  };
+  const [meals, items, logs, profile, weights] = await Promise.all([
+    q(db.from('dash_meals').select('meal_date, meal_type, description, kcal, food_name, ai_kcal, protein_g, carbs_g, fat_g')
+      .eq('user_id', userId).gte('meal_date', weekStart).lte('meal_date', weekEnd).order('meal_date').order('created_at')),
+    q(db.from('dash_workout_items').select('id, name, time_label, active').eq('user_id', userId)),
+    q(db.from('dash_workout_logs').select('item_id, log_date, done').eq('user_id', userId).eq('done', true)
+      .gte('log_date', weekStart).lte('log_date', weekEnd)),
+    q(db.from('dash_profile').select('height_cm').eq('user_id', userId).maybeSingle()),
+    q(db.from('dash_body_weights').select('weigh_date, weight_kg').eq('user_id', userId)
+      .gte('weigh_date', addD(weekStart, -28)).lte('weigh_date', weekEnd).order('weigh_date')),
+  ]);
+
+  // 숫자 계산 (AI에게 맡기지 않음)
+  const r1 = (n) => Math.round(n * 10) / 10;
+  const perDay = days.map((date) => {
+    const ms = meals.filter((m) => m.meal_date === date);
+    const sum = (k) => ms.reduce((t, m) => t + Number(m[k] ?? 0), 0);
+    return {
+      date,
+      meals: ms.length,
+      kcal: ms.reduce((t, m) => t + (m.kcal ?? m.ai_kcal ?? 0), 0),
+      protein_g: r1(sum('protein_g')),
+      carbs_g: r1(sum('carbs_g')),
+      fat_g: r1(sum('fat_g')),
+      workouts: logs.filter((l) => l.log_date === date).length,
+    };
+  });
+  const mealDays = perDay.filter((d) => d.meals > 0);
+  const avg = (k) => (mealDays.length ? Math.round(mealDays.reduce((t, d) => t + d[k], 0) / mealDays.length) : 0);
+  const pk = avg('protein_g') * 4, ck = avg('carbs_g') * 4, fk = avg('fat_g') * 9, mk = pk + ck + fk;
+  const activeItems = items.filter((i) => i.active);
+  const doneById = Object.fromEntries(activeItems.map((i) => [i.id, logs.filter((l) => l.item_id === i.id).length]));
+  const doneTotal = Object.values(doneById).reduce((a, b) => a + b, 0);
+  const height = profile?.height_cm ? Number(profile.height_cm) : null;
+  const inWeek = weights.filter((w) => w.weigh_date >= weekStart);
+  const latest = weights.at(-1) ?? null;
+  const stats = {
+    week_start: weekStart,
+    week_end: weekEnd,
+    meal_days: mealDays.length,
+    meal_count: meals.length,
+    avg_kcal: avg('kcal'),
+    avg_protein_g: avg('protein_g'),
+    avg_carbs_g: avg('carbs_g'),
+    avg_fat_g: avg('fat_g'),
+    macro_pct: mk ? { p: Math.round((pk / mk) * 100), c: Math.round((ck / mk) * 100), f: Math.round((fk / mk) * 100) } : null,
+    skipped_breakfast: mealDays.filter((d) => !meals.some((m) => m.meal_date === d.date && m.meal_type === 'breakfast')).length,
+    workout_days: perDay.filter((d) => d.workouts > 0).length,
+    workout_done: doneTotal,
+    workout_possible: activeItems.length * elapsed,
+    workout_items: activeItems.map((i) => ({ name: i.name, done: doneById[i.id] })),
+    height_cm: height,
+    weight_start: inWeek[0] ? Number(inWeek[0].weight_kg) : null,
+    weight_end: inWeek.at(-1) ? Number(inWeek.at(-1).weight_kg) : null,
+    weight_latest: latest ? Number(latest.weight_kg) : null,
+    bmi: height && latest ? r1(Number(latest.weight_kg) / (height / 100) ** 2) : null,
+    days: perDay,
+  };
+  log(`[health] ${weekStart} ~ ${weekEnd}: 식단 ${stats.meal_days}일·${stats.meal_count}끼, 운동 ${doneTotal}/${stats.workout_possible}, 체중 ${inWeek.length}회`);
+  if (meals.length === 0 && logs.length === 0 && inWeek.length === 0) {
+    log('[health] 이번 주 기록이 없어 건너뜀');
+    return;
+  }
+
+  const W = ['일', '월', '화', '수', '목', '금', '토'];
+  const dayLabel = (d) => `${d.slice(5)}(${W[new Date(`${d}T00:00:00Z`).getUTCDay()]})`;
+  const mealLines = days.map((date) => {
+    const ms = meals.filter((m) => m.meal_date === date);
+    const d = perDay.find((x) => x.date === date);
+    if (date > today) return `${dayLabel(date)}: (아직 오지 않은 날)`;
+    if (!ms.length) return `${dayLabel(date)}: 기록 없음`;
+    const list = ms.map((m) => `${MEAL_LABEL[m.meal_type]} ${m.food_name || m.description}${(m.kcal ?? m.ai_kcal) != null ? ` ${m.kcal ?? m.ai_kcal}kcal` : ''}`).join(' / ');
+    return `${dayLabel(date)}: ${list}  → 합계 ${d.kcal}kcal, 단${d.protein_g} 탄${d.carbs_g} 지${d.fat_g}g`;
+  });
+  const workoutLines = days.map((date) => {
+    const done = logs.filter((l) => l.log_date === date).map((l) => items.find((i) => i.id === l.item_id)?.name).filter(Boolean);
+    return `${dayLabel(date)}: ${date > today ? '(아직 오지 않은 날)' : done.length ? done.join(', ') : '-'}`;
+  });
+
+  const prompt = `너는 영양사이자 운동 코치다. 한 사람의 지난 1주일(${weekStart} ~ ${weekEnd}) 기록을 보고 한국어로 주간 평가를 써라.
+원칙:
+- 숫자는 아래 '계산된 값'을 그대로 쓰고 새로 지어내지 마라. 칼로리·영양소는 AI 추정치라 오차가 있다는 점을 감안해 단정하지 마라.
+- 기록이 없는 날은 '안 먹음/안 함'이 아니라 '기록 없음'으로 취급하고, 기록이 적으면 그만큼 조심스럽게 평가하라.
+${elapsed < 7 ? `- 이 주는 아직 진행 중이다 (${elapsed}일 지남). '아직 오지 않은 날'은 평가에서 빼라.\n` : ''}- 나이·성별처럼 모르는 정보는 가정하지 말고 필요하면 범위로 말하라. 진단·약물 같은 의학적 판단은 하지 마라.
+- 조언은 다음 주에 바로 해볼 수 있게 구체적으로 (어느 끼니에 무엇을 얼마나 바꿀지).
+${ENV.MEAL_CONTEXT ? `참고할 이 사람의 상황: ${ENV.MEAL_CONTEXT}\n` : ''}
+계산된 값:
+- 식단 기록 ${stats.meal_days}일, ${stats.meal_count}끼 / 기록한 날 하루 평균 ${stats.avg_kcal}kcal, 단백질 ${stats.avg_protein_g}g, 탄수화물 ${stats.avg_carbs_g}g, 지방 ${stats.avg_fat_g}g${stats.macro_pct ? ` (열량 비율 단${stats.macro_pct.p}% 탄${stats.macro_pct.c}% 지${stats.macro_pct.f}%)` : ''}
+- 아침 기록이 없는 날: 식단 기록한 ${stats.meal_days}일 중 ${stats.skipped_breakfast}일
+- 운동 루틴 체크 ${doneTotal}회 / 가능 ${stats.workout_possible}회 (운동한 날 ${stats.workout_days}일)
+- 항목별 체크 횟수: ${stats.workout_items.map((i) => `${i.name} ${i.done}회`).join(', ') || '루틴 없음'}
+- 키 ${height ?? '모름'}cm, 최근 체중 ${stats.weight_latest ?? '기록 없음'}kg${stats.bmi ? `, BMI ${stats.bmi}` : ''}
+- 최근 4주 체중 기록: ${weights.map((w) => `${w.weigh_date.slice(5)} ${w.weight_kg}kg`).join(', ') || '없음'}
+
+날짜별 식단:
+${mealLines.join('\n')}
+
+날짜별 운동 체크:
+${workoutLines.join('\n')}
+
+출력:
+- headline: 이번 주 핵심 평가를 한 문장으로 (날짜나 '주간 평가' 같은 제목 형식 말고, 무엇이 좋았고 무엇이 아쉬웠는지)
+- diet: 식단 구성 평가 3~5문장 (열량 수준, 탄단지 균형, 끼니 규칙성, 채소·단백질 공급원·가공식품 등 음식 구성)
+- exercise: 운동 평가 2~4문장 (빈도, 꾸준함, 빠진 항목)
+- body: 키·체중·BMI에 대한 2~3문장 (체중 기록이 없으면 기록을 권하는 한 문장)
+- good: 잘한 점 2~3개 (각 한 문장)
+- adjust: 조절하면 좋을 부분 2~4개 (각 한 문장, 구체적으로)
+- next_week: 다음 주 목표 2~3개 (짧고 확인 가능하게)`;
+
+  const list = { type: 'ARRAY', items: { type: 'STRING' } };
+  const report = await gemini(prompt, {
+    type: 'OBJECT',
+    properties: { headline: { type: 'STRING' }, diet: { type: 'STRING' }, exercise: { type: 'STRING' }, body: { type: 'STRING' }, good: list, adjust: list, next_week: list },
+    required: ['headline', 'diet', 'exercise', 'body', 'good', 'adjust', 'next_week'],
+  });
+  const { error } = await db
+    .from('dash_health_reports')
+    .upsert({ user_id: userId, week_start: weekStart, stats, report, created_at: new Date().toISOString() }, { onConflict: 'user_id,week_start' });
+  if (error) throw error;
+  log(`[health] 저장: ${report.headline}`);
+}
+
 // ---------- 실행 ----------
 const cmd = process.argv[2] || 'all';
 try {
@@ -411,6 +555,10 @@ try {
     if ((cmd === 'meals' || cmd === 'all') && !DRY) await runMeals(userId);
     if (cmd === 'news' || cmd === 'all') await runNews(userId);
     if ((cmd === 'market' || cmd === 'all') && !DRY) await runMarket(userId, process.argv.includes('--missing'));
+    if (cmd === 'health' && !DRY) {
+      const i = process.argv.indexOf('--week');
+      await runHealth(userId, i > 0 ? process.argv[i + 1] : null);
+    }
   }
   if (!(cmd === 'market' && process.argv.includes('--missing'))) log('[done]', cmd);
 } catch (e) {
