@@ -16,6 +16,7 @@ import { ageOf, useViewedMember } from '../lib/member';
 import { MemberSwitch } from '../components/MemberSwitch';
 import { ImportInbox } from '../components/ImportInbox';
 import { CheckupReview } from '../components/CheckupReview';
+import { RecordView } from '../components/RecordView';
 import { PageHeader, ErrorBanner, EmptyState, Panel, errMsg } from '../components/ui';
 import { Icon } from '../components/Icon';
 
@@ -61,6 +62,7 @@ export default function Checkup() {
   const [noteText, setNoteText] = useState('');
   const [rLoading, setRLoading] = useState(true);
   const [reload, setReload] = useState(0);
+  const [inboxKey, setInboxKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const loading = mLoading || rLoading;
 
@@ -109,7 +111,13 @@ export default function Checkup() {
     ...t,
     cells: cols.map((c) => labsBy[c.id].find((l) => t.names.includes(l.test_name.trim())) ?? null),
   })).filter((r) => r.cells.some(Boolean));
-  const detail = checkups.find((c) => c.id === detailId) ?? checkups[0];
+  // 검사 기록 목록: 수치가 없는 기록(파일만 있는 것 등)도 포함
+  const testRecords = mine.filter((r) => r.type === '검진결과').sort((a, b) => b.date.localeCompare(a.date));
+  const detail = testRecords.find((c) => c.id === detailId) ?? null;
+  const openRecord = (id: string) => {
+    setDetailId(id);
+    setTimeout(() => document.getElementById(`rec-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  };
 
   // 일상 기록 (같은 날 중복 저장된 것은 하나로)
   const daily = Object.values(
@@ -227,6 +235,11 @@ export default function Checkup() {
                 placeholder="정렬이 깨져 있어도 괜찮습니다. 여러 쪽을 한 번에 붙여넣어도 됩니다."
                 hint="맥미니의 AI(gemini-3.8-flash)가 항목별로 정리하면, 원문 줄과 비교하며 고친 뒤 저장합니다."
                 onError={setError}
+                refreshKey={inboxKey}
+                onOpenSaved={(id) => {
+                  setReload((n) => n + 1);
+                  openRecord(id);
+                }}
                 renderReview={(imp, done) => (
                   <CheckupReview
                     imp={imp}
@@ -234,6 +247,7 @@ export default function Checkup() {
                     onDone={() => {
                       done();
                       setReload((n) => n + 1);
+                      setInboxKey((n) => n + 1);
                     }}
                   />
                 )}
@@ -287,7 +301,11 @@ export default function Checkup() {
                     <thead>
                       <tr>
                         <th>검사</th>
-                        {cols.map((c) => <th key={c.id}>{shortDate(c.date)}</th>)}
+                        {cols.map((c) => (
+                          <th key={c.id}>
+                            <button className="link-btn" onClick={() => openRecord(c.id)}>{shortDate(c.date)}</button>
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
@@ -308,32 +326,35 @@ export default function Checkup() {
               </Panel>
             )}
 
-            {detail && (
-              <Panel
-                flush
-                title="검진 전체 항목"
-                right={
-                  <select value={detail.id} onChange={(e) => setDetailId(e.target.value)} aria-label="검진 날짜">
-                    {checkups.map((c) => <option key={c.id} value={c.id}>{day(c.date)}</option>)}
-                  </select>
-                }
-              >
-                <div className="table-scroll">
-                  <table className="lab-table full">
-                    <tbody>
-                      {labsBy[detail.id].map((l, i) => (
-                        <tr key={i}>
-                          <th>
-                            {l.test_name}
-                            <small>{l.category}</small>
-                          </th>
-                          <td className={l.is_abnormal ? 'abn' : ''}>{fmtVal(l)} {l.unit ?? ''}</td>
-                          <td className="muted small">{l.reference_range ?? ''}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+            {testRecords.length > 0 && (
+              <Panel flush title="검사 기록" subtitle="날짜를 누르면 전체 항목·소견·원문을 보고 고칠 수 있습니다">
+                <ul className="list record-list">
+                  {testRecords.map((r) => {
+                    const ls = labsBy[r.id] ?? [];
+                    const abn = ls.filter((l) => l.is_abnormal).length;
+                    const open = r.id === detailId;
+                    return (
+                      <li key={r.id} id={`rec-${r.id}`} className={open ? 'open' : ''}>
+                        <button className="list-item record-head" onClick={() => setDetailId(open ? null : r.id)} aria-expanded={open}>
+                          <span className="item-main static">
+                            <span className="item-title">{day(r.date)}</span>
+                            <span className="meal-sub">{[r.institution_name, `${ls.length}개 항목`].filter(Boolean).join(' · ')}</span>
+                          </span>
+                          {abn > 0 && <span className="status-badge concern">이상 {abn}</span>}
+                          <Icon name={open ? 'up' : 'down'} size={18} />
+                        </button>
+                        {open && detail && (
+                          <RecordView
+                            record={detail}
+                            labs={ls}
+                            onError={setError}
+                            onChanged={() => setReload((n) => n + 1)}
+                          />
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
               </Panel>
             )}
           </div>

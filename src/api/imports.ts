@@ -18,6 +18,8 @@ export interface LabDraft {
 }
 
 export interface CheckupDraft {
+  /** 저장된 health_records.id */
+  _saved_to?: string;
   date: string;
   institution?: string;
   findings?: string;
@@ -41,6 +43,8 @@ export interface MedDraft {
 }
 
 export interface EpisodeDraft {
+  /** 저장된 episodes.id */
+  _saved_to?: string;
   episode: { existing_id: string; title: string; start_date: string; end_date: string; description: string };
   symptoms: SymptomDraft[];
   medications: MedDraft[];
@@ -88,9 +92,18 @@ export async function deleteImport(id: string): Promise<void> {
   ok(await supabase.from('dash_health_imports').delete().eq('id', id));
 }
 
-async function markSaved(id: string, draft: unknown) {
-  ok(await supabase.from('dash_health_imports').update({ status: 'saved', draft, saved_at: new Date().toISOString() }).eq('id', id));
+async function markSaved(id: string, draft: CheckupDraft | EpisodeDraft, savedTo: string) {
+  ok(await supabase.from('dash_health_imports').update({ status: 'saved', draft: { ...draft, _saved_to: savedTo }, saved_at: new Date().toISOString() }).eq('id', id));
 }
+
+/** 저장까지 끝난 입력 (최근 순) — 원문을 다시 보고, 어디에 저장됐는지 찾아가기 */
+export async function listSavedImports(member_id: string, kind: ImportKind, limit = 50): Promise<HealthImport[]> {
+  return ok(
+    await supabase.from('dash_health_imports').select(COLS).eq('member_id', member_id).eq('kind', kind).eq('status', 'saved').order('created_at', { ascending: false }).limit(limit),
+  ) ?? [];
+}
+
+export const savedTo = (imp: HealthImport): string | undefined => (imp.draft as { _saved_to?: string } | null)?._saved_to;
 
 const VITAL: Record<string, string[]> = {
   weight: ['체중', '몸무게'],
@@ -145,7 +158,7 @@ export async function saveCheckup(imp: HealthImport, draft: CheckupDraft): Promi
       throw error;
     }
   }
-  await markSaved(imp.id, draft);
+  await markSaved(imp.id, draft, record.id);
 }
 
 /** 검토한 아플 때 기록을 episodes / symptom_logs / medication_logs 로 저장 */
@@ -199,6 +212,6 @@ export async function saveEpisode(imp: HealthImport, draft: EpisodeDraft): Promi
       ),
     );
   }
-  await markSaved(imp.id, draft);
+  await markSaved(imp.id, draft, episodeId);
   return episodeId;
 }

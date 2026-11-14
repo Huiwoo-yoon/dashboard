@@ -617,3 +617,18 @@ a.news-item:hover { background: var(--surface-2); }
 .med-bar { fill: color-mix(in srgb, var(--ink) 22%, var(--surface)); stroke: color-mix(in srgb, var(--ink) 45%, var(--surface)); }
 .med-bar.ongoing { stroke-dasharray: 4 3; }
 .med-label { fill: var(--text); font-size: 11px; pointer-events: none; }
+.saved-imports .sub-title { margin-top: 6px; }
+.saved-actions { gap: 14px; padding: 0 0 8px; }
+.saved-actions .link-btn.small { margin: 0; }
+.record-list > li { border-bottom: 1px solid var(--border); }
+.record-list > li:last-child { border-bottom: none; }
+.record-head { width: 100%; border: none; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; gap: 10px; }
+.record-head .item-main { flex: 1; min-width: 0; }
+.record-list > li.open > .record-head { background: var(--surface-2); }
+.record-actions { padding: 10px 20px; flex-wrap: wrap; gap: 6px; }
+.record-findings { padding: 0 20px 12px; }
+.lab-table thead .link-btn { font: inherit; color: var(--text-2); }
+.end-date-form { flex-wrap: wrap; gap: 8px; margin-bottom: 14px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; }
+.list-item.editing .end-date-form { margin: 0; border: none; padding: 0; }
+.memo-item { border-bottom: 1px solid var(--border); }
+.memo-item:last-child { border-bottom: none; }

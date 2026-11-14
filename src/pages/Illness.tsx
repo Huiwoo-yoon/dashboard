@@ -20,6 +20,7 @@ import { MemberSwitch } from '../components/MemberSwitch';
 import { ImportInbox } from '../components/ImportInbox';
 import { EpisodeReview } from '../components/EpisodeReview';
 import { EpisodeChart } from '../components/EpisodeChart';
+import { listSavedImports, savedTo, type HealthImport } from '../api/imports';
 import { PageHeader, ErrorBanner, EmptyState, Panel, errMsg } from '../components/ui';
 import { Icon } from '../components/Icon';
 
@@ -39,6 +40,10 @@ export default function Illness() {
   const [meds, setMeds] = useState<MedLog[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [memos, setMemos] = useState<HealthImport[]>([]);
+  const [editingEp, setEditingEp] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const [rawOpen, setRawOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,8 +58,9 @@ export default function Illness() {
     (async () => {
       const eps = await listEpisodes(memberId);
       const ids = eps.map((e) => e.id);
-      const [s, m] = await Promise.all([listSymptoms(ids), listMeds(ids)]);
+      const [s, m, saved] = await Promise.all([listSymptoms(ids), listMeds(ids), listSavedImports(memberId, 'episode', 200)]);
       if (cancelled) return;
+      setMemos(saved);
       setEpisodes(eps);
       setSymptoms(s);
       setMeds(m);
@@ -71,6 +77,14 @@ export default function Illness() {
   const ep = episodes.find((e) => e.id === selected) ?? null;
   const epSym = symptoms.filter((s) => s.episode_id === selected);
   const epMed = meds.filter((m) => m.episode_id === selected);
+  const epMemos = memos.filter((m) => savedTo(m) === selected);
+
+  useEffect(() => {
+    setEditingEp(false);
+    setResolving(false);
+  }, [selected]);
+
+  const refresh = () => setReload((n) => n + 1);
 
   // 최근 1년 한눈에
   const yearAgo = `${Number(today.slice(0, 4)) - 1}${today.slice(4)}`;
@@ -107,6 +121,8 @@ export default function Illness() {
                 placeholder={'예: 어제 저녁부터 목이 따갑고 오늘 아침 열 38.2. 타이레놀 500mg 2정 먹고 오후엔 37.4. 이비인후과에서 3일치 처방 받음'}
                 hint="맥미니 AI가 정리하면 확인 후 저장합니다."
                 onError={setError}
+                refreshKey={reload}
+                onOpenSaved={(id) => setSelected(id)}
                 renderReview={(imp, done) => (
                   <EpisodeReview
                     imp={imp}
@@ -115,7 +131,7 @@ export default function Illness() {
                     onDone={(id) => {
                       done();
                       if (id) setSelected(id);
-                      setReload((n) => n + 1);
+                      refresh();
                     }}
                   />
                 )}
@@ -165,17 +181,33 @@ export default function Illness() {
                   title={ep.title}
                   subtitle={`${period(ep.start_date, ep.end_date)}${ep.description ? ` · ${ep.description}` : ''}`}
                   right={
-                    ep.status === 'active' ? (
-                      <button className="btn ghost small" onClick={() => run(updateEpisode(ep.id, { end_date: today, status: 'resolved' }).then(() => setReload((n) => n + 1)))}>
-                        나았어요
+                    <div className="row" style={{ gap: 6 }}>
+                      {ep.status === 'active' && !resolving && (
+                        <button className="btn ghost small" onClick={() => setResolving(true)}>나았어요</button>
+                      )}
+                      <button className="btn ghost small" onClick={() => setEditingEp((v) => !v)}>
+                        <Icon name="edit" size={16} /> {editingEp ? '닫기' : '고치기'}
                       </button>
-                    ) : (
-                      <button className="btn ghost small" onClick={() => run(updateEpisode(ep.id, { end_date: null, status: 'active' }).then(() => setReload((n) => n + 1)))}>
-                        다시 진행 중
-                      </button>
-                    )
+                    </div>
                   }
                 >
+                  {resolving && (
+                    <EndDateForm
+                      label="언제 나았나요?"
+                      min={ep.start_date}
+                      today={today}
+                      onCancel={() => setResolving(false)}
+                      onSave={(d) => run(updateEpisode(ep.id, { end_date: d, status: 'resolved' }).then(refresh))}
+                    />
+                  )}
+                  {editingEp && (
+                    <EpisodeEditForm
+                      ep={ep}
+                      today={today}
+                      onCancel={() => setEditingEp(false)}
+                      onSave={(patch) => run(updateEpisode(ep.id, patch).then(refresh))}
+                    />
+                  )}
                   {epSym.length + epMed.length === 0 ? (
                     <p className="muted small" style={{ margin: 0 }}>증상이나 약을 기록하면 추이 그래프가 나타납니다.</p>
                   ) : (
@@ -204,26 +236,36 @@ export default function Illness() {
                 <Panel flush title="약">
                   <ul className="list">
                     {epMed.map((m) => (
-                      <li key={m.id} className="list-item">
-                        <span className="item-main static">
-                          <span className="item-title">{m.medication_name}</span>
-                          <span className="meal-sub">
-                            {[m.dosage, period(m.start_date, m.end_date).replace('진행 중', '복용 중'), m.effectiveness && `효과 ${m.effectiveness}/5`, m.symptom_effect].filter(Boolean).join(' · ')}
-                          </span>
-                        </span>
-                        {!m.end_date && (
-                          <button className="btn ghost small" onClick={() => run(updateMed(m.id, { end_date: today }).then(() => setMeds((l) => l.map((x) => (x.id === m.id ? { ...x, end_date: today } : x)))))}>
-                            그만 먹음
-                          </button>
-                        )}
-                        <button className="icon-btn" aria-label="삭제" onClick={() => confirm('이 약 기록을 삭제할까요?') && run(deleteMed(m.id).then(() => setMeds((l) => l.filter((x) => x.id !== m.id))))}>
-                          <Icon name="trash" size={18} />
-                        </button>
-                      </li>
+                      <MedRow
+                        key={m.id}
+                        m={m}
+                        today={today}
+                        onSave={(patch) => run(updateMed(m.id, patch).then(() => setMeds((l) => l.map((x) => (x.id === m.id ? { ...x, ...patch } : x)))))}
+                        onDelete={() => confirm('이 약 기록을 삭제할까요?') && run(deleteMed(m.id).then(() => setMeds((l) => l.filter((x) => x.id !== m.id))))}
+                      />
                     ))}
                   </ul>
                   <MedForm today={today} onAdd={(v) => run(addMed({ ...v, episode_id: ep.id }).then((m) => setMeds((l) => [...l, m])))} />
                 </Panel>
+
+                {epMemos.length > 0 && (
+                  <Panel flush title="입력한 메모" subtitle="이 기록으로 저장된 원문">
+                    <ul className="list">
+                      {epMemos.map((mm) => (
+                        <li key={mm.id} className="memo-item">
+                          <button className="list-item record-head" onClick={() => setRawOpen(rawOpen === mm.id ? null : mm.id)}>
+                            <span className="item-main static">
+                              <span className="item-title ellipsis">{mm.raw_text.slice(0, 50).replace(/\s+/g, ' ')}</span>
+                              <span className="meal-sub">{seoulDT(mm.created_at)} 입력</span>
+                            </span>
+                            <Icon name={rawOpen === mm.id ? 'up' : 'down'} size={18} />
+                          </button>
+                          {rawOpen === mm.id && <pre className="raw-text" style={{ margin: '0 20px 12px' }}>{mm.raw_text}</pre>}
+                        </li>
+                      ))}
+                    </ul>
+                  </Panel>
+                )}
 
                 <button
                   className="btn ghost danger"
@@ -299,5 +341,156 @@ function MedForm({ today, onAdd }: { today: string; onAdd: (v: Omit<MedLog, 'id'
         <button className="btn primary" disabled={!name.trim()} aria-label="약 추가"><Icon name="plus" size={18} /></button>
       </div>
     </form>
+  );
+}
+
+/** 끝난 날(과거 날짜 가능) 고르기 */
+function EndDateForm({ label, min, today, onSave, onCancel }: { label: string; min: string; today: string; onSave: (d: string) => void; onCancel: () => void }) {
+  const [d, setD] = useState(today);
+  return (
+    <form
+      className="row end-date-form"
+      onSubmit={(e: FormEvent) => {
+        e.preventDefault();
+        if (d) onSave(d);
+      }}
+    >
+      <span className="small">{label}</span>
+      <input type="date" value={d} min={min} max={today} onChange={(e) => setD(e.target.value)} />
+      <button type="button" className="btn ghost small" onClick={onCancel}>취소</button>
+      <button className="btn primary small" disabled={!d}>저장</button>
+    </form>
+  );
+}
+
+function EpisodeEditForm({
+  ep,
+  today,
+  onSave,
+  onCancel,
+}: {
+  ep: Episode;
+  today: string;
+  onSave: (p: Pick<Episode, 'title' | 'description' | 'start_date' | 'end_date' | 'status'>) => void;
+  onCancel: () => void;
+}) {
+  const [title, setTitle] = useState(ep.title);
+  const [desc, setDesc] = useState(ep.description ?? '');
+  const [start, setStart] = useState(ep.start_date);
+  const [end, setEnd] = useState(ep.end_date ?? '');
+  const bad = !title.trim() || !start || (!!end && end < start);
+  return (
+    <form
+      className="review"
+      style={{ marginBottom: 14 }}
+      onSubmit={(e: FormEvent) => {
+        e.preventDefault();
+        if (bad) return;
+        onSave({ title: title.trim(), description: desc.trim() || null, start_date: start, end_date: end || null, status: end ? 'resolved' : 'active' });
+      }}
+    >
+      <div className="review-meta">
+        <label>제목<input value={title} onChange={(e) => setTitle(e.target.value)} /></label>
+        <label>시작<input type="date" value={start} max={today} onChange={(e) => setStart(e.target.value)} /></label>
+        <label>
+          끝 (비우면 진행 중)
+          <span className="row" style={{ gap: 4 }}>
+            <input type="date" value={end} min={start} max={today} onChange={(e) => setEnd(e.target.value)} />
+            {end && <button type="button" className="icon-btn" aria-label="끝 날짜 지우기" onClick={() => setEnd('')}><Icon name="close" size={16} /></button>}
+          </span>
+        </label>
+      </div>
+      <label className="field-label">
+        설명
+        <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="(선택)" />
+      </label>
+      {end && end < start && <p className="err-text small">끝 날짜가 시작보다 빠릅니다</p>}
+      <div className="row">
+        <span style={{ flex: 1 }} />
+        <button type="button" className="btn ghost" onClick={onCancel}>취소</button>
+        <button className="btn primary" disabled={bad}>저장</button>
+      </div>
+    </form>
+  );
+}
+
+function MedRow({
+  m,
+  today,
+  onSave,
+  onDelete,
+}: {
+  m: MedLog;
+  today: string;
+  onSave: (p: Partial<Omit<MedLog, 'id' | 'episode_id'>>) => void;
+  onDelete: () => void;
+}) {
+  const [mode, setMode] = useState<'view' | 'stop' | 'edit'>('view');
+  const [f, setF] = useState({ name: m.medication_name, dosage: m.dosage ?? '', start: m.start_date, end: m.end_date ?? '', eff: m.effectiveness ?? 0 });
+
+  if (mode === 'stop') {
+    return (
+      <li className="list-item editing">
+        <EndDateForm
+          label={`${m.medication_name} 언제까지 먹었나요?`}
+          min={m.start_date}
+          today={today}
+          onCancel={() => setMode('view')}
+          onSave={(d) => {
+            onSave({ end_date: d });
+            setMode('view');
+          }}
+        />
+      </li>
+    );
+  }
+  if (mode === 'edit') {
+    const bad = !f.name.trim() || !f.start || (!!f.end && f.end < f.start);
+    return (
+      <li className="list-item editing">
+        <form
+          className="edit-form"
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            if (bad) return;
+            onSave({ medication_name: f.name.trim(), dosage: f.dosage.trim() || null, start_date: f.start, end_date: f.end || null, effectiveness: f.eff || null });
+            setMode('view');
+          }}
+        >
+          <div className="row">
+            <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="약 이름" />
+            <input value={f.dosage} onChange={(e) => setF({ ...f, dosage: e.target.value })} placeholder="용량·용법" />
+          </div>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <label className="small">시작 <input type="date" value={f.start} max={today} onChange={(e) => setF({ ...f, start: e.target.value })} /></label>
+            <label className="small">끝 <input type="date" value={f.end} min={f.start} max={today} onChange={(e) => setF({ ...f, end: e.target.value })} /></label>
+            <label className="small">
+              효과
+              <select value={f.eff} onChange={(e) => setF({ ...f, eff: Number(e.target.value) })}>
+                <option value={0}>모름</option>
+                {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}/5</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="row">
+            <button type="button" className="icon-btn" aria-label="삭제" onClick={onDelete}><Icon name="trash" size={18} /></button>
+            <span style={{ flex: 1 }} />
+            <button type="button" className="btn ghost" onClick={() => setMode('view')}>취소</button>
+            <button className="btn primary" disabled={bad}>저장</button>
+          </div>
+        </form>
+      </li>
+    );
+  }
+  return (
+    <li className="list-item">
+      <button className="item-main" onClick={() => setMode('edit')} aria-label="약 기록 고치기">
+        <span className="item-title">{m.medication_name}</span>
+        <span className="meal-sub">
+          {[m.dosage, period(m.start_date, m.end_date).replace('진행 중', '복용 중'), m.effectiveness && `효과 ${m.effectiveness}/5`, m.symptom_effect].filter(Boolean).join(' · ')}
+        </span>
+      </button>
+      {!m.end_date && <button className="btn ghost small" onClick={() => setMode('stop')}>그만 먹음</button>}
+    </li>
   );
 }

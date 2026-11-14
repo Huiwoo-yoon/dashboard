@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { createImport, deleteImport, listOpenImports, retryImport, type HealthImport, type ImportKind } from '../api/imports';
+import { createImport, deleteImport, listOpenImports, listSavedImports, retryImport, savedTo, type HealthImport, type ImportKind } from '../api/imports';
 import { errMsg } from './ui';
 
 const STATUS: Record<string, string> = { pending: '맥미니 대기 중', parsing: 'AI가 정리하는 중', ready: '검토 대기', failed: '정리 실패' };
@@ -17,6 +17,8 @@ export function ImportInbox({
   hint,
   renderReview,
   onError,
+  onOpenSaved,
+  refreshKey,
 }: {
   memberId: string;
   kind: ImportKind;
@@ -24,20 +26,33 @@ export function ImportInbox({
   hint: ReactNode;
   renderReview: (imp: HealthImport, done: () => void) => ReactNode;
   onError: (msg: string) => void;
+  /** 저장된 입력의 '보기' → 그 기록으로 이동 */
+  onOpenSaved?: (savedToId: string) => void;
+  /** 바뀌면 저장된 목록을 다시 읽는다 */
+  refreshKey?: number;
 }) {
   const [text, setText] = useState('');
   const [items, setItems] = useState<HealthImport[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [saved, setSaved] = useState<HealthImport[]>([]);
+  const [showAll, setShowAll] = useState(false);
+  const [rawId, setRawId] = useState<string | null>(null);
 
-  const load = () => listOpenImports(memberId, kind).then(setItems).catch((e) => onError(errMsg(e)));
+  const load = () =>
+    Promise.all([listOpenImports(memberId, kind), listSavedImports(memberId, kind)])
+      .then(([open, done]) => {
+        setItems(open);
+        setSaved(done);
+      })
+      .catch((e) => onError(errMsg(e)));
 
   useEffect(() => {
     setItems([]);
     setOpenId(null);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [memberId, kind]);
+  }, [memberId, kind, refreshKey]);
 
   const busy = items.some((i) => i.status === 'pending' || i.status === 'parsing');
   useEffect(() => {
@@ -100,6 +115,29 @@ export function ImportInbox({
         </ul>
       )}
       {busy && <p className="panel-note">보통 30초~1분 걸립니다. 화면을 닫아도 정리는 계속됩니다.</p>}
+
+      {saved.length > 0 && (
+        <div className="saved-imports">
+          <h3 className="sub-title">저장한 입력 {saved.length}건</h3>
+          <ul className="import-list">
+            {(showAll ? saved : saved.slice(0, 3)).map((i) => (
+              <li key={i.id}>
+                <div className="import-head">
+                  <span className="status-badge good">저장됨</span>
+                  <span className="ellipsis">{i.raw_text.slice(0, 60).replace(/\s+/g, ' ')}</span>
+                  <span className="muted small">{when(i.created_at)}</span>
+                </div>
+                <div className="row saved-actions">
+                  <button className="link-btn small" onClick={() => setRawId(rawId === i.id ? null : i.id)}>{rawId === i.id ? '원문 닫기' : '원문'}</button>
+                  {onOpenSaved && savedTo(i) && <button className="link-btn small" onClick={() => onOpenSaved(savedTo(i)!)}>저장된 기록 보기</button>}
+                </div>
+                {rawId === i.id && <pre className="raw-text" style={{ marginBottom: 10 }}>{i.raw_text}</pre>}
+              </li>
+            ))}
+          </ul>
+          {saved.length > 3 && <button className="link-btn small" onClick={() => setShowAll((v) => !v)}>{showAll ? '접기' : `모두 보기 (${saved.length})`}</button>}
+        </div>
+      )}
 
       {open &&
         renderReview(open, () => {
