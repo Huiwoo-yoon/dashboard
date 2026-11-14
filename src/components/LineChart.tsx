@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Point, RangeKey } from '../api/market';
 
 const H = 280;
@@ -37,13 +37,16 @@ export function LineChart({
   label: string;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(600);
+  // 화면에 맞춰 잰 너비. 재기 전에는 그리지 않는다 (임의의 너비로 그리면 폰에서 페이지가 넓어져 전체가 축소됨)
+  const [measured, setWidth] = useState<number | null>(null);
+  const width = Math.max(240, measured ?? 0);
   const [hover, setHover] = useState<number | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = wrap.current;
     if (!el) return;
-    const ro = new ResizeObserver(([e]) => setWidth(Math.max(280, e.contentRect.width)));
+    setWidth(el.clientWidth);
+    const ro = new ResizeObserver(([e]) => setWidth(e.contentRect.width));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -76,7 +79,8 @@ export function LineChart({
   const tipLeft = hover != null ? Math.min(Math.max(x(hover), 70), width - 70) : 0;
 
   return (
-    <div className="chart" ref={wrap}>
+    <div className="chart" ref={wrap} style={{ height: H }}>
+      {measured != null && measured > 0 && (
       <svg width={width} height={H} role="img" aria-label={`${label} 추이: ${format(vals[0])}에서 ${format(vals[vals.length - 1])}`}>
         {yTicks.map((v) => (
           <g key={v}>
@@ -107,6 +111,7 @@ export function LineChart({
           onPointerLeave={() => setHover(null)}
         />
       </svg>
+      )}
       {hp && (
         <div className="chart-tip" style={{ left: tipLeft }}>
           <div className="v">{format(hp[1])}</div>

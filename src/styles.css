@@ -509,7 +509,7 @@ a.news-item:hover { background: var(--surface-2); }
 .fall { color: var(--fall); font-weight: 700; }
 .flat { color: var(--muted); font-weight: 700; }
 .period-change { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
-.chart { position: relative; margin-top: 6px; width: 100%; min-width: 0; contain: inline-size; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.chart { position: relative; margin-top: 6px; width: 100%; min-width: 0; max-width: 100%; contain: inline-size; overflow: hidden; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .chart svg { display: block; overflow: visible; }
 .chart-grid { stroke: var(--border); stroke-width: 1; }
 .chart-axis { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -571,7 +571,8 @@ a.news-item:hover { background: var(--surface-2); }
 /* 관리: 가족 전환 · 붙여넣기 검토 · 아플 때 */
 .member-switch { margin: -4px 0 16px; width: fit-content; max-width: 100%; overflow-x: auto; }
 .member-switch button { white-space: nowrap; }
-.import-inbox { display: grid; gap: 10px; }
+.import-inbox { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
+.import-inbox > * { min-width: 0; }
 .import-inbox textarea { width: 100%; min-height: 110px; resize: vertical; font: inherit; font-size: 0.88rem; }
 .import-list { list-style: none; margin: 4px 0 0; padding: 0; border-top: 1px solid var(--border); }
 .import-list li { border-bottom: 1px solid var(--border); }
@@ -632,3 +633,4 @@ a.news-item:hover { background: var(--surface-2); }
 .list-item.editing .end-date-form { margin: 0; border: none; padding: 0; }
 .memo-item { border-bottom: 1px solid var(--border); }
 .memo-item:last-child { border-bottom: none; }
+.item-main > .ellipsis { max-width: 100%; }

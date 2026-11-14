@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { Episode, MedLog, SymptomLog } from '../api/episodes';
 
 const DAY = 86400000;
@@ -9,11 +9,14 @@ const t = (d: string) => Date.parse(`${d}T00:00:00+09:00`);
 /** 증상 강도(선)와 약 복용 기간(막대)을 같은 날짜 축에 */
 export function EpisodeChart({ episode, symptoms, meds, today }: { episode: Episode; symptoms: SymptomLog[]; meds: MedLog[]; today: string }) {
   const wrap = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(600);
-  useEffect(() => {
+  // 화면에 맞춰 잰 너비. 재기 전에는 그리지 않는다 (임의의 너비로 그리면 폰에서 페이지가 넓어져 전체가 축소됨)
+  const [measured, setWidth] = useState<number | null>(null);
+  const width = Math.max(240, measured ?? 0);
+  useLayoutEffect(() => {
     const el = wrap.current;
     if (!el) return;
-    const ro = new ResizeObserver(([e]) => setWidth(Math.max(280, e.contentRect.width)));
+    setWidth(el.clientWidth);
+    const ro = new ResizeObserver(([e]) => setWidth(e.contentRect.width));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -32,10 +35,14 @@ export function EpisodeChart({ episode, symptoms, meds, today }: { episode: Epis
   const x = (ms: number) => L + ((ms - from) / (to - from)) * (width - L - R);
   const y = (sev: number) => TOP + (1 - sev / 10) * SEV_H;
   const pts = symptoms.map((s) => ({ s, cx: x(Date.parse(s.logged_at)), cy: y(s.severity) }));
-  const ticks = [0, 1, 2, 3].map((k) => from + ((to - from - DAY) * k) / 3);
+  // 날짜 눈금: 하루 단위로 맞추고 겹치지 않게 (최대 5개)
+  const nDays = Math.round((to - from) / DAY);
+  const step = Math.max(1, Math.ceil((nDays - 1) / 4));
+  const ticks = Array.from({ length: Math.floor((nDays - 1) / step) + 1 }, (_, k) => from + k * step * DAY);
 
   return (
-    <div className="chart" ref={wrap}>
+    <div className="chart" ref={wrap} style={{ height: H }}>
+      {measured != null && measured > 0 && (
       <svg width={width} height={H} role="img" aria-label="증상 강도와 복용 약 추이">
         {[0, 5, 10].map((v) => (
           <g key={v}>
@@ -44,8 +51,8 @@ export function EpisodeChart({ episode, symptoms, meds, today }: { episode: Epis
           </g>
         ))}
         {ticks.map((ms, i) => (
-          <text key={i} x={x(ms)} y={TOP + SEV_H + 18} textAnchor={i === 0 ? 'start' : i === 3 ? 'end' : 'middle'} className="chart-axis">
-            {md(new Date(ms).toISOString().slice(0, 10))}
+          <text key={i} x={x(ms + DAY / 2)} y={TOP + SEV_H + 18} textAnchor="middle" className="chart-axis">
+            {md(seoulDay(new Date(ms).toISOString()))}
           </text>
         ))}
         {pts.length > 1 && <polyline points={pts.map((p) => `${p.cx},${p.cy}`).join(' ')} fill="none" stroke="var(--ink)" strokeWidth={2} />}
@@ -69,6 +76,7 @@ export function EpisodeChart({ episode, symptoms, meds, today }: { episode: Epis
           );
         })}
       </svg>
+      )}
     </div>
   );
 }
