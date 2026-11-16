@@ -686,13 +686,17 @@ async function processImports() {
 /** 계속 돌면서 15초마다 붙여넣기 대기열 확인 (launchd KeepAlive) */
 async function runWorker() {
   log(`[worker] 시작 (모델 ${ENV.GEMINI_PARSE_MODEL})`);
+  let wait = 15000;
   for (;;) {
     try {
       await processImports();
+      wait = 15000;
     } catch (e) {
-      log(`[worker] 오류: ${e.message}`);
+      // DB가 안 될 때 15초마다 두드리지 않게: 30초, 1분, 2분 … 최대 10분까지 늘린다
+      wait = Math.min(wait * 2, 10 * 60000);
+      log(`[worker] 오류: ${String(e.message).slice(0, 200)} — ${wait / 1000}초 뒤 다시`);
     }
-    await sleep(15000);
+    await sleep(wait);
   }
 }
 
