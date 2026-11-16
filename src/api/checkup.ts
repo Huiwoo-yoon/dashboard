@@ -112,7 +112,7 @@ export async function getInsight(member_id: string): Promise<CheckupInsight | nu
   return ok(await supabase.from('dash_checkup_insights').select('member_id, insight, requested_at, created_at').eq('member_id', member_id).maybeSingle());
 }
 
-/** 맥미니가 10분 안에 다시 분석한다 */
+/** 맥미니가 30분 안에 다시 분석한다 */
 export async function requestInsight(member_id: string): Promise<string> {
   const requested_at = new Date().toISOString();
   ok(await supabase.from('dash_checkup_insights').upsert({ member_id, requested_at }, { onConflict: 'user_id,member_id' }));

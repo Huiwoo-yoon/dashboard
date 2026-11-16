@@ -135,7 +135,7 @@ export default function Market() {
       <ErrorBanner error={error} onClose={() => setError(null)} />
 
       {managing && (
-        <Panel title="종목 추가" subtitle="Yahoo Finance 티커로 입력합니다. 추가하면 10분 안에 시세가 채워집니다.">
+        <Panel title="종목 추가" subtitle="Yahoo Finance 티커로 입력합니다. 추가하면 30분 안에 시세가 채워집니다.">
           <form className="add-form" onSubmit={onAdd}>
             <div className="field-grid">
               <input placeholder="티커 (예: AAPL, 000660.KS)" value={draft.symbol} onChange={(e) => setDraft({ ...draft, symbol: e.target.value })} maxLength={30} autoCapitalize="characters" />
@@ -177,7 +177,7 @@ export default function Market() {
                   ) : q?.error ? (
                     <div className="stat-foot err-text">티커를 확인해 주세요</div>
                   ) : (
-                    <div className="stat-foot">시세 준비 중 · 10분 안에 표시</div>
+                    <div className="stat-foot">시세 준비 중 · 30분 안에 표시</div>
                   )}
                 </button>
                 {managing && (

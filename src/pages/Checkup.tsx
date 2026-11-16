@@ -263,7 +263,7 @@ export default function Checkup() {
                 </button>
               }
             >
-              {pending && <p className="panel-note" style={{ marginTop: 0, marginBottom: 12 }}>맥미니가 10분 안에 분석합니다. 잠시 후 새로고침하세요.</p>}
+              {pending && <p className="panel-note" style={{ marginTop: 0, marginBottom: 12 }}>맥미니가 30분 안에 분석합니다. 잠시 후 새로고침하세요.</p>}
               {!ins ? (
                 <p className="muted small" style={{ margin: 0 }}>
                   아직 인사이트가 없습니다. 새 검진이 들어오거나 메모가 바뀌면 맥미니가 자동으로 분석합니다.

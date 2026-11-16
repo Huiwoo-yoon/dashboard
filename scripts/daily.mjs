@@ -5,8 +5,8 @@
 //   node scripts/daily.mjs news    지난 금~목 주간 소식 정리 (매주 금요일)
 //   node scripts/daily.mjs market  경제 동향: 관심 종목 시세·차트 갱신 (--missing: 새로 추가된 종목만)
 //   node scripts/daily.mjs health  주간 건강 리포트: 지난 월~일 식단·운동·체중 평가 (매주 월요일, --week 2026-11-09 로 특정 주)
-//   node scripts/daily.mjs checkup 건강검진 AI 인사이트 (기록·메모가 바뀌었거나 화면에서 요청했을 때만, 10분마다 확인. --force: 무조건)
-//   node scripts/daily.mjs worker  계속 돌며 15초마다 붙여넣은 검사 결과·아플 때 메모를 AI로 정리 (launchd KeepAlive)
+//   node scripts/daily.mjs checkup 건강검진 AI 인사이트 (기록·메모가 바뀌었거나 화면에서 요청했을 때만, 30분마다 확인. --force: 무조건)
+//   node scripts/daily.mjs worker  계속 돌며 1분마다 붙여넣은 검사 결과·아플 때 메모를 AI로 정리 (launchd KeepAlive)
 //   node scripts/daily.mjs all
 // 설정: scripts/.env.local (git에 올라가지 않음) — 아래 ENV 항목 참고
 
@@ -365,7 +365,7 @@ async function runMarket(userId, onlyMissing) {
     if (e2) throw e2;
     const done = new Set(have.map((h) => h.symbol));
     targets = targets.filter((s) => !done.has(s));
-    if (targets.length === 0) return; // 조용히 끝 (10분마다 도는 작업)
+    if (targets.length === 0) return; // 조용히 끝 (30분마다 도는 작업)
   }
   log(`[market] ${targets.length}개 종목 갱신`);
   for (const symbol of targets) {
@@ -474,7 +474,7 @@ async function checkupFor(userId, memberId, row, force) {
   const stamp = [ctx.records.length, latestAt(ctx.records), ctx.labs.length, latestAt(ctx.labs), ctx.notes.length, latestAt(ctx.notes),
     ctx.episodes.length, latestAt(ctx.episodes), ctx.meds.length, latestAt(ctx.meds), ctx.symptoms.length, latestAt(ctx.symptoms)].join('|');
   const requested = row?.requested_at && (!row.created_at || row.requested_at > row.created_at);
-  if (!requested && !force && (!hasData || row?.source_stamp === stamp)) return; // 할 일 없음 (10분마다 조용히 확인)
+  if (!requested && !force && (!hasData || row?.source_stamp === stamp)) return; // 할 일 없음 (30분마다 조용히 확인)
   log(`[checkup] ${ctx.member.name ?? ''} 분석 시작 (${requested ? '화면에서 요청' : force ? '수동' : '기록 변경'}) 검진 ${ctx.checkups.length}회, 아픈 기록 ${ctx.episodes.length}건`);
 
   const isMe = (await healthContext(userId))?.member.id === memberId; // 식단·운동·체중 기록은 '나'의 것
@@ -546,7 +546,7 @@ ${isMe ? `대시보드 체중 기록: ${weights.map((w) => `${w.weigh_date} ${w.
 
 // ---------- 붙여넣은 원문 AI 정리 (검사 결과 / 아플 때 기록) ----------
 // 화면에서 붙여넣은 원문(dash_health_imports, status=pending)을 정리해 draft로 돌려준다.
-// 저장은 화면에서 사람이 검토한 뒤에 한다. 이 맥미니에서 계속 돌며 15초마다 확인 (worker).
+// 저장은 화면에서 사람이 검토한 뒤에 한다. 이 맥미니에서 계속 돌며 1분마다 확인 (worker).
 
 /** 참고치 문자열에서 범위를 읽는다. 성별 참고치는 그 사람 성별로. 못 읽으면 null */
 function parseRange(ref, gender) {
@@ -683,16 +683,17 @@ async function processImports() {
   }
 }
 
-/** 계속 돌면서 15초마다 붙여넣기 대기열 확인 (launchd KeepAlive) */
+/** 계속 돌면서 1분마다 붙여넣기 대기열 확인 (launchd KeepAlive) */
 async function runWorker() {
   log(`[worker] 시작 (모델 ${ENV.GEMINI_PARSE_MODEL})`);
-  let wait = 15000;
+  // 무료 인스턴스 메모리가 빠듯해서 자주 두드리지 않는다 (2026-11-16 Disk IO 소진 장애)
+  let wait = 60000;
   for (;;) {
     try {
       await processImports();
-      wait = 15000;
+      wait = 60000;
     } catch (e) {
-      // DB가 안 될 때 15초마다 두드리지 않게: 30초, 1분, 2분 … 최대 10분까지 늘린다
+      // DB가 안 될 때는 2분, 4분, 8분 … 최대 10분까지 늘린다
       wait = Math.min(wait * 2, 10 * 60000);
       log(`[worker] 오류: ${String(e.message).slice(0, 200)} — ${wait / 1000}초 뒤 다시`);
     }

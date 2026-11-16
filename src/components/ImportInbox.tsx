@@ -7,7 +7,7 @@ const when = (iso: string) =>
   new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
 
 /**
- * 원문 붙여넣기 → 맥미니(15초마다 확인)가 AI로 정리 → 검토 화면(renderReview).
+ * 원문 붙여넣기 → 맥미니(1분마다 확인)가 AI로 정리 → 검토 화면(renderReview).
  * 정리 중인 것이 있으면 4초마다 상태를 다시 읽는다.
  */
 export function ImportInbox({
