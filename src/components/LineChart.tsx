@@ -42,6 +42,8 @@ export function LineChart({
   const width = Math.max(240, measured ?? 0);
   const [hover, setHover] = useState<number | null>(null);
 
+  const empty = points.length < 2;
+  // 데이터가 늦게 오면 처음엔 '데이터 없음'만 보여 잴 상자가 없다. 차트 상자가 생길 때마다 다시 잰다.
   useLayoutEffect(() => {
     const el = wrap.current;
     if (!el) return;
@@ -49,10 +51,10 @@ export function LineChart({
     const ro = new ResizeObserver(([e]) => setWidth(e.contentRect.width));
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [empty]);
   useEffect(() => setHover(null), [points]);
 
-  if (points.length < 2) return <div className="chart-empty muted small">표시할 데이터가 없습니다</div>;
+  if (empty) return <div className="chart-empty muted small">표시할 데이터가 없습니다</div>;
 
   const vals = points.map((p) => p[1]);
   let lo = Math.min(...vals);
